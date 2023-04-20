@@ -14,7 +14,7 @@
 #include <time.h>
 #include <errno.h>
 #include <jansson.h>
-
+// example on how to create and verify tokens
 static const char * NEVER_EMBED_A_SECRET_IN_CODE = "supa secret";
 
 static void 

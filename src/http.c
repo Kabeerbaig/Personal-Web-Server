@@ -281,6 +281,20 @@ guess_mime_type(char *filename)
     if (!strcasecmp(suffix, ".js"))
         return "text/javascript";
 
+    // add extra check for file suffix
+    if (!strcasecmp(suffix, ".css"))
+        return "text/css";
+
+    if (!strcasecmp(suffix, ".mp4"))
+        return "video/mp4";
+
+    if (!strcasecmp(suffix, ".svg"))
+        return "image/svg+xml";
+    
+// add extra checks for proper files 
+// make sure two dots are not present, path parsing ; follow code that gets to the static file serving 
+// main function for handeling file is handle_transaction; add .. check in there; http error code do not serve file 
+
     return "text/plain";
 }
 
@@ -293,6 +307,10 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
     char *req_path = bufio_offset2ptr(ta->client->bufio, ta->req_path);
     // The code below is vulnerable to an attack.  Can you see
     // which?  Fix it to avoid indirect object reference (IDOR) attacks.
+
+    if (strstr(req_path, "..") != NULL) {
+        return send_error(ta, HTTP_NOT_FOUND, "Invalid path.");
+    }
     snprintf(fname, sizeof fname, "%s%s", basedir, req_path);
 
     if (access(fname, R_OK)) {
@@ -390,3 +408,22 @@ http_handle_transaction(struct http_client *self)
 
     return rc;
 }
+// Serving files first - when request is made to server you should be able to return the file information through a file return protocol
+// Authentication in file serving (#1)
+// file streaming - streaming a very large file; return content of file but transfer part of a file at the same time; sending file piece by piece through a differnt request
+// Server will be multithreaded; 
+// fully understand http.c code 
+// ipv6 support; lecture notes on independent socket programming
+// curl localhost:4500/somepath
+//right arrow get 
+
+
+// server loop accepts connections
+// http handle transactions is called everytime a connection is called
+// add authentification there; not implemented 
+//handlestaticasset
+//handle api; figure out login stuff
+
+//jwt 
+
+// curl -v used to debug network connections; you can manually see what is coming in and out in the headers

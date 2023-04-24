@@ -365,6 +365,7 @@ http_setup_client(struct http_client *self, struct bufio *bufio)
 }
 
 /* Handle a single HTTP transaction.  Returns true on success. */
+// handle different types of request
 bool
 http_handle_transaction(struct http_client *self)
 {
@@ -399,9 +400,42 @@ http_handle_transaction(struct http_client *self)
     } else
     if (STARTS_WITH(req_path, "/private")) {
         /* not implemented */
-    } else {
+    } 
+    else {
+    // checks to see if request path has a "/"; sets the request path to index.html
+        if (strcmp(req_path, "/") == 0) {
+        req_path = "index.html";
+        ta.req_path = bufio_ptr2offset(ta.client->bufio, req_path);
+        }
+        else {
+        // otherwise append .html to the path and checks to see if the path exisits 
+        // if it does then the request path is updated 
+            char alternative_path[PATH_MAX];
+            snprintf(alternative_path, sizeof alternative_path, "%s.html", req_path);
+
+            if (access(alternative_path, F_OK) != -1) {
+                req_path = alternative_path;
+                ta.req_path = bufio_ptr2offset(ta.client->bufio, req_path);
+            }
+            // if the request path does not exist then it will look for the file in the server root
+            // if the file exists then the file is served 
+            else {
+                char fallback[PATH_MAX];
+
+                snprintf(fallback, sizeof fallback, "%s/200.html", server_root);
+
+                if (access(fallback, F_OK) != -1) {
+                    req_path = "/200.html";
+                    ta.req_path = bufio_ptr2offset(ta.client->bufio, req_path);
+                }
+            
+            }
+        }
         rc = handle_static_asset(&ta, server_root);
     }
+    // else {
+    //     rc = handle_static_asset(&ta, server_root);
+    // }
 
     buffer_delete(&ta.resp_headers);
     buffer_delete(&ta.resp_body);
@@ -427,3 +461,5 @@ http_handle_transaction(struct http_client *self)
 //jwt 
 
 // curl -v used to debug network connections; you can manually see what is coming in and out in the headers
+
+//curl -i -T /home/ugrads/majors/kabeerb/CS3214/Projects/Personal_Server/pserv/src/http.c http://localhost:4521/

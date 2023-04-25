@@ -303,7 +303,9 @@ static bool
 handle_static_asset(struct http_transaction *ta, char *basedir)
 {
     char fname[PATH_MAX];
-
+    // extra char arrays to hold the file path 
+    char alternative_path[PATH_MAX];
+    char base_path[PATH_MAX];
     char *req_path = bufio_offset2ptr(ta->client->bufio, ta->req_path);
     // The code below is vulnerable to an attack.  Can you see
     // which?  Fix it to avoid indirect object reference (IDOR) attacks.
@@ -312,12 +314,28 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
         return send_error(ta, HTTP_NOT_FOUND, "Invalid path.");
     }
     snprintf(fname, sizeof fname, "%s%s", basedir, req_path);
-
+    // check to see if the requested path has "/" 
+    // also check if the requested file is not found then we update fname to /index.html
+    if (strcmp(req_path, "/") == 0 || access(fname, R_OK) != 0) {
+        snprintf(fname, sizeof fname, "%s/index.html", basedir);
+    }
+   //Resolve the file path and base directory path 
+   // if any erorrs are found then return 404 Error
+    if (!realpath(fname, alternative_path) || !realpath(basedir, base_path)) {  
+        return send_not_found(ta);
+    }
+    // Checks if file path starts with resolved base directory 
+    // Return 404 Error if it doesnt start with it 
+    if (strncmp(alternative_path, base_path, strlen(base_path)) != 0) {
+        return send_error(ta, HTTP_NOT_FOUND, "Invalid path.");
+    
+    }
+    // Checks to see if file to be served is accessible
+    // If it is not then send 404 Error
     if (access(fname, R_OK)) {
-        if (errno == EACCES)
-            return send_error(ta, HTTP_PERMISSION_DENIED, "Permission denied.");
-        else
-            return send_not_found(ta);
+    
+        return send_not_found(ta);
+       
     }
 
     // Determine file size
@@ -401,41 +419,40 @@ http_handle_transaction(struct http_client *self)
     if (STARTS_WITH(req_path, "/private")) {
         /* not implemented */
     } 
-    else {
-    // checks to see if request path has a "/"; sets the request path to index.html
-        if (strcmp(req_path, "/") == 0) {
-        req_path = "index.html";
-        ta.req_path = bufio_ptr2offset(ta.client->bufio, req_path);
-        }
-        else {
-        // otherwise append .html to the path and checks to see if the path exisits 
-        // if it does then the request path is updated 
-            char alternative_path[PATH_MAX];
-            snprintf(alternative_path, sizeof alternative_path, "%s.html", req_path);
+    // else {
+    // // checks to see if request path has a "/"; sets the request path to index.html
+    //     if (strcmp(req_path, "/") == 0) {
+    //     req_path = "index.html";
+    //     ta.req_path = bufio_ptr2offset(ta.client->bufio, req_path);
+    //     }
+    //     else {
+    //     // otherwise append .html to the path and checks to see if the path exisits 
+    //     // if it does then the request path is updated 
+    //         char alternative_path[PATH_MAX];
+    //         snprintf(alternative_path, sizeof alternative_path, "%s.html", req_path);
 
-            if (access(alternative_path, F_OK) != -1) {
-                req_path = alternative_path;
-                ta.req_path = bufio_ptr2offset(ta.client->bufio, req_path);
-            }
-            // if the request path does not exist then it will look for the file in the server root
-            // if the file exists then the file is served 
-            else {
-                char fallback[PATH_MAX];
+    //         if (access(alternative_path, F_OK) != -1) {
+    //             req_path = alternative_path;
+    //             ta.req_path = bufio_ptr2offset(ta.client->bufio, req_path);
+    //         }
+    //         // if the request path does not exist then it will look for the file in the server root
+    //         // if the file exists then the file is served 
+    //         else {
+    //             char fallback[PATH_MAX];
 
-                snprintf(fallback, sizeof fallback, "%s/200.html", server_root);
+    //             snprintf(fallback, sizeof fallback, "%s/200.html", server_root);
 
-                if (access(fallback, F_OK) != -1) {
-                    req_path = "/200.html";
-                    ta.req_path = bufio_ptr2offset(ta.client->bufio, req_path);
-                }
+    //             if (access(fallback, F_OK) != -1) {
+    //                 req_path = "/200.html";
+    //                 ta.req_path = bufio_ptr2offset(ta.client->bufio, req_path);
+    //             }
             
-            }
-        }
+    //         }
+    //     }
+    //     rc = handle_static_asset(&ta, server_root);
+    else {
         rc = handle_static_asset(&ta, server_root);
     }
-    // else {
-    //     rc = handle_static_asset(&ta, server_root);
-    // }
 
     buffer_delete(&ta.resp_headers);
     buffer_delete(&ta.resp_body);
@@ -463,3 +480,10 @@ http_handle_transaction(struct http_client *self)
 // curl -v used to debug network connections; you can manually see what is coming in and out in the headers
 
 //curl -i -T /home/ugrads/majors/kabeerb/CS3214/Projects/Personal_Server/pserv/src/http.c http://localhost:4521/
+
+
+
+//curl request with an invalid file; 
+// curl command to get a file: curl link /filname
+// run -p 4521 -R /home/ugrads/majors/kabeerb/CS3214/Projects/Personal_Server/pserv/tests/test_root_data
+// ./server_unit_te./server_unit_test_pserv.py -s /home/ugrads/majors/kabeerb/CS3214/Projects/Personal_Server/pserv/src/server 

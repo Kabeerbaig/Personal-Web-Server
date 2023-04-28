@@ -1,0 +1,7 @@
+are the user name and password hardcoded, is it a simple helper function that will compare the username and password
+    - do we get the info to compare the hardcoded values from the ta.header 
+    - do we have to decode and encode the username
+do we have to use jwt to authenticate the user 
+
+do we have to make a struct for the json object
+tips to get started on the /api/login

@@ -26,6 +26,8 @@
 #include "bufio.h"
 #include "main.h"
 
+static bool handle_api_get(struct http_transaction *ta);
+
 // Need macros here because of the sizeof
 #define CRLF "\r\n"
 #define CR "\r"
@@ -38,11 +40,11 @@ http_parse_request(struct http_transaction *ta)
 {
     size_t req_offset;
     ssize_t len = bufio_readline(ta->client->bufio, &req_offset);
-    if (len < 2)       // error, EOF, or less than 2 characters
+    if (len < 2) // error, EOF, or less than 2 characters
         return false;
 
     char *request = bufio_offset2ptr(ta->client->bufio, req_offset);
-    request[len-2] = '\0';  // replace LF with 0 to ensure zero-termination
+    request[len - 2] = '\0'; // replace LF with 0 to ensure zero-termination
     char *endptr;
     char *method = strtok_r(request, " ", &endptr);
     if (method == NULL)
@@ -62,14 +64,17 @@ http_parse_request(struct http_transaction *ta)
     ta->req_path = bufio_ptr2offset(ta->client->bufio, req_path);
 
     char *http_version = strtok_r(NULL, CR, &endptr);
-    if (http_version == NULL)  // would be HTTP 0.9
+    if (http_version == NULL) // would be HTTP 0.9
         return false;
 
     // record client's HTTP version in request
     if (!strcmp(http_version, "HTTP/1.1"))
         ta->req_version = HTTP_1_1;
     else if (!strcmp(http_version, "HTTP/1.0"))
+    {
         ta->req_version = HTTP_1_0;
+        ta->persist = false;
+    }
     else
         return false;
 
@@ -80,20 +85,26 @@ http_parse_request(struct http_transaction *ta)
 static bool
 http_process_headers(struct http_transaction *ta)
 {
-    for (;;) {
+    if (ta->req_version == HTTP_1_1)
+    {
+        ta->persist = true;
+    }
+
+    for (;;)
+    {
         size_t header_offset;
         ssize_t len = bufio_readline(ta->client->bufio, &header_offset);
         if (len <= 0)
             return false;
 
         char *header = bufio_offset2ptr(ta->client->bufio, header_offset);
-        if (len == 2 && STARTS_WITH(header, CRLF))       // empty CRLF
+        if (len == 2 && STARTS_WITH(header, CRLF)) // empty CRLF
             return true;
 
-        header[len-2] = '\0';
-        /* Each header field consists of a name followed by a 
-         * colon (":") and the field value. Field names are 
-         * case-insensitive. The field value MAY be preceded by 
+        header[len - 2] = '\0';
+        /* Each header field consists of a name followed by a
+         * colon (":") and the field value. Field names are
+         * case-insensitive. The field value MAY be preceded by
          * any amount of LWS, though a single SP is preferred.
          */
         char *endptr;
@@ -108,21 +119,30 @@ http_process_headers(struct http_transaction *ta)
 
         // you may print the header like so
         // printf("Header: %s: %s\n", field_name, field_value);
-        if (!strcasecmp(field_name, "Content-Length")) {
+        if (!strcasecmp(field_name, "Content-Length"))
+        {
             ta->req_content_len = atoi(field_value);
         }
 
         /* Handle other headers here. Both field_value and field_name
          * are zero-terminated strings.
          */
+
+        if (!strcasecmp(field_name, "Connection"))
+        {
+
+            if (!strcasecmp(field_value, "Close"))
+            {
+                ta->persist = false;
+            }
+        }
     }
 }
 
 const int MAX_HEADER_LEN = 2048;
 
 /* add a formatted header to the response buffer. */
-void 
-http_add_header(buffer_t * resp, char* key, char* fmt, ...)
+void http_add_header(buffer_t *resp, char *key, char *fmt, ...)
 {
     va_list ap;
 
@@ -145,16 +165,17 @@ add_content_length(buffer_t *res, size_t len)
     http_add_header(res, "Content-Length", "%ld", len);
 }
 
-/* start the response by writing the first line of the response 
+/* start the response by writing the first line of the response
  * to the response buffer.  Used in send_response_header */
 static void
-start_response(struct http_transaction * ta, buffer_t *res)
+start_response(struct http_transaction *ta, buffer_t *res)
 {
     buffer_init(res, 80);
 
     buffer_appends(res, "HTTP/1.0 ");
 
-    switch (ta->resp_status) {
+    switch (ta->resp_status)
+    {
     case HTTP_OK:
         buffer_appends(res, "200 OK");
         break;
@@ -202,8 +223,7 @@ send_response_header(struct http_transaction *ta)
     buffer_appends(&ta->resp_headers, CRLF);
 
     buffer_t *response_and_headers[2] = {
-        &response, &ta->resp_headers
-    };
+        &response, &ta->resp_headers};
 
     int rc = bufio_sendbuffers(ta->client->bufio, response_and_headers, 2);
     buffer_delete(&response);
@@ -222,8 +242,7 @@ send_response(struct http_transaction *ta)
     start_response(ta, &response);
 
     buffer_t *response_and_headers[3] = {
-        &response, &ta->resp_headers, &ta->resp_body
-    };
+        &response, &ta->resp_headers, &ta->resp_body};
 
     int rc = bufio_sendbuffers(ta->client->bufio, response_and_headers, 3);
     buffer_delete(&response);
@@ -234,7 +253,7 @@ const int MAX_ERROR_LEN = 2048;
 
 /* Send an error response. */
 static bool
-send_error(struct http_transaction * ta, enum http_response_status status, const char *fmt, ...)
+send_error(struct http_transaction *ta, enum http_response_status status, const char *fmt, ...)
 {
     va_list ap;
 
@@ -252,11 +271,11 @@ send_error(struct http_transaction * ta, enum http_response_status status, const
 static bool
 send_not_found(struct http_transaction *ta)
 {
-    return send_error(ta, HTTP_NOT_FOUND, "File %s not found", 
-        bufio_offset2ptr(ta->client->bufio, ta->req_path));
+    return send_error(ta, HTTP_NOT_FOUND, "File %s not found",
+                      bufio_offset2ptr(ta->client->bufio, ta->req_path));
 }
 
-/* A start at assigning an appropriate mime type.  Real-world 
+/* A start at assigning an appropriate mime type.  Real-world
  * servers use more extensive lists such as /etc/mime.types
  */
 static const char *
@@ -290,10 +309,10 @@ guess_mime_type(char *filename)
 
     if (!strcasecmp(suffix, ".svg"))
         return "image/svg+xml";
-    
-// add extra checks for proper files 
-// make sure two dots are not present, path parsing ; follow code that gets to the static file serving 
-// main function for handeling file is handle_transaction; add .. check in there; http error code do not serve file 
+
+    // add extra checks for proper files
+    // make sure two dots are not present, path parsing ; follow code that gets to the static file serving
+    // main function for handeling file is handle_transaction; add .. check in there; http error code do not serve file
 
     return "text/plain";
 }
@@ -308,12 +327,14 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
     // The code below is vulnerable to an attack.  Can you see
     // which?  Fix it to avoid indirect object reference (IDOR) attacks.
 
-    if (strstr(req_path, "..") != NULL) {
+    if (strstr(req_path, "..") != NULL)
+    {
         return send_error(ta, HTTP_NOT_FOUND, "Invalid path.");
     }
     snprintf(fname, sizeof fname, "%s%s", basedir, req_path);
 
-    if (access(fname, R_OK)) {
+    if (access(fname, R_OK))
+    {
         if (errno == EACCES)
             return send_error(ta, HTTP_PERMISSION_DENIED, "Permission denied.");
         else
@@ -327,7 +348,8 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
         return send_error(ta, HTTP_INTERNAL_ERROR, "Could not stat file.");
 
     int filefd = open(fname, O_RDONLY);
-    if (filefd == -1) {
+    if (filefd == -1)
+    {
         return send_not_found(ta);
     }
 
@@ -354,19 +376,35 @@ out:
 static bool
 handle_api(struct http_transaction *ta)
 {
+    // handle login and logout
+    char *buff = bufio_offset2ptr(ta->client->bufio, 0);
+    char *path = buff + ta->req_body;
+    if (STARTS_WITH(path, "/api/login") == 0)
+    {
+        if (ta->req_method == HTTP_POST)
+        {
+            // return handle_api_post(ta);
+        }
+        else if (ta->req_method == HTTP_GET)
+        {
+            return handle_api_get(ta);
+        }
+    }
+    else if (STARTS_WITH(path, "/api/logout") == 0)
+    {
+        // return handle_api_logout(ta);
+    }
     return send_error(ta, HTTP_NOT_FOUND, "API not implemented");
 }
 
 /* Set up an http client, associating it with a bufio buffer. */
-void 
-http_setup_client(struct http_client *self, struct bufio *bufio)
+void http_setup_client(struct http_client *self, struct bufio *bufio)
 {
     self->bufio = bufio;
 }
 
 /* Handle a single HTTP transaction.  Returns true on success. */
-bool
-http_handle_transaction(struct http_client *self)
+bool http_handle_transaction(struct http_client *self)
 {
     struct http_transaction ta;
     memset(&ta, 0, sizeof ta);
@@ -378,7 +416,8 @@ http_handle_transaction(struct http_client *self)
     if (!http_process_headers(&ta))
         return false;
 
-    if (ta.req_content_len > 0) {
+    if (ta.req_content_len > 0)
+    {
         int rc = bufio_read(self->bufio, ta.req_content_len, &ta.req_body);
         if (rc != ta.req_content_len)
             return false;
@@ -394,36 +433,49 @@ http_handle_transaction(struct http_client *self)
 
     bool rc = false;
     char *req_path = bufio_offset2ptr(ta.client->bufio, ta.req_path);
-    if (STARTS_WITH(req_path, "/api")) {
+    if (STARTS_WITH(req_path, "/api"))
+    {
         rc = handle_api(&ta);
-    } else
-    if (STARTS_WITH(req_path, "/private")) {
+    }
+    else if (STARTS_WITH(req_path, "/private"))
+    {
         /* not implemented */
-    } else {
+    }
+    else
+    {
         rc = handle_static_asset(&ta, server_root);
     }
 
     buffer_delete(&ta.resp_headers);
     buffer_delete(&ta.resp_body);
 
+    ta.client->persist = ta.persist;
+
     return rc;
+}
+
+// Handle the get request
+static bool handle_api_get(struct http_transaction *ta)
+{
+    buffer_appends(&ta->resp_body, "{}");
+    ta->resp_status = HTTP_OK;
+    return send_response(ta);
 }
 // Serving files first - when request is made to server you should be able to return the file information through a file return protocol
 // Authentication in file serving (#1)
 // file streaming - streaming a very large file; return content of file but transfer part of a file at the same time; sending file piece by piece through a differnt request
-// Server will be multithreaded; 
-// fully understand http.c code 
+// Server will be multithreaded;
+// fully understand http.c code
 // ipv6 support; lecture notes on independent socket programming
 // curl localhost:4500/somepath
-//right arrow get 
-
+// right arrow get
 
 // server loop accepts connections
 // http handle transactions is called everytime a connection is called
-// add authentification there; not implemented 
-//handlestaticasset
-//handle api; figure out login stuff
+// add authentification there; not implemented
+// handlestaticasset
+// handle api; figure out login stuff
 
-//jwt 
+// jwt
 
 // curl -v used to debug network connections; you can manually see what is coming in and out in the headers

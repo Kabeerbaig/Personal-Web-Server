@@ -47,10 +47,12 @@ struct http_transaction {
     buffer_t resp_body;
 
     struct http_client *client;
+    bool persist;
 };
 
 struct http_client {
     struct bufio *bufio;
+    bool persist;
 };
 
 void http_setup_client(struct http_client *, struct bufio *bufio);

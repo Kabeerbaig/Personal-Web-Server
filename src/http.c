@@ -153,14 +153,25 @@ http_process_headers(struct http_transaction *ta)
 
             char *token = strstr(encoded_cookie, "auth_token="); // tokenize the string by semicolon delimiter
             token += strlen("auth_token=");
+            printf("Cookie: %s\n", token);
 
             jwt_t *ymtoken;
             jwt_decode(&ymtoken, token, (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE, strlen(NEVER_EMBED_A_SECRET_IN_CODE));
+
             char *grants = jwt_get_grants_json(ymtoken, NULL);
+            if (grants == NULL)
+            {
+                ta->authenticated = false;
+                continue;
+            }
             json_error_t error;
 
             json_t *jgrants = json_loadb(grants, strlen(grants), 0, &error);
-            free(grants);
+            if (jgrants == NULL)
+            {
+                ta->authenticated = false;
+                continue;
+            }
 
             json_int_t exp, iat;
             const char *sub;
@@ -171,12 +182,13 @@ http_process_headers(struct http_transaction *ta)
 
             if (now < exp)
             {
-                ta->cookie = token;
-                printf("Here is the cookie %s\n", ta->cookie);
+                ta->token = grants;
                 ta->authenticated = true;
             }
-
-            ta->authenticated = false;
+            else
+            {
+                ta->authenticated = false;
+            }
         }
     }
 }
@@ -481,7 +493,14 @@ bool http_handle_transaction(struct http_client *self)
     }
     else if (STARTS_WITH(req_path, "/private"))
     {
-        /* not implemented */
+        if (ta.authenticated)
+        {
+            rc = handle_static_asset(&ta, server_root);
+        }
+        else
+        {
+            send_error(&ta, HTTP_PERMISSION_DENIED, "Permission Denied.");
+        }
     }
     else
     {
@@ -515,8 +534,13 @@ static bool handle_api_post(struct http_transaction *ta)
     {
         return send_error(ta, HTTP_BAD_REQUEST, "Missing username and password!");
     }
+
+    if (username == NULL || password == NULL)
+    {
+        return send_error(ta, HTTP_PERMISSION_DENIED, "Acess permission denied");
+    }
     // If the username and password matches
-    if (strcmp(username, USERNAME) == 0 || strcmp(password, PASSWORD) == 0)
+    if (strcmp(username, USERNAME) == 0 && strcmp(password, PASSWORD) == 0)
     {
         // free the object since it is no longer needed
         json_decref(req);
@@ -581,7 +605,17 @@ static bool handle_api_post(struct http_transaction *ta)
 // Handle the get request
 static bool handle_api_get(struct http_transaction *ta)
 {
+    if (ta->authenticated)
+    {
+        buffer_appends(&ta->resp_body, ta->token);
+        http_add_header(&ta->resp_headers, "Content-Type", "application/json");
+        ta->resp_status = HTTP_OK;
+
+        return send_response(ta);
+    }
+
     buffer_appends(&ta->resp_body, "{}");
+    http_add_header(&ta->resp_headers, "Content-Type", "application/json");
     ta->resp_status = HTTP_OK;
     return send_response(ta);
 }

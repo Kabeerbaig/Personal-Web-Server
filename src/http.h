@@ -52,7 +52,7 @@ struct http_transaction
     struct http_client *client;
     bool persist;
 
-    char *cookie;
+    char *token;
     bool authenticated;
 };
 

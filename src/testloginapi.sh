@@ -28,23 +28,23 @@ curl -v \
     -b ${COOKIEJAR} \
     ${URL}/api/login
 
-# # create a 'private' folder first for your server, and
-# # put a file `secret.txt` in it.
-# # this should fail since credentials were not presented in the request
-# curl -v \
-#     ${URL}/private/secret.txt
+# create a 'private' folder first for your server, and
+# put a file `secret.txt` in it.
+# this should fail since credentials were not presented in the request
+curl -v \
+    ${URL}/private/secret.txt
 
-# # this should succeed since credentials are included (via the cookie jar)
-# curl -v \
-#     -b ${COOKIEJAR} \
-#     ${URL}/private/secret.txt
+# this should succeed since credentials are included (via the cookie jar)
+curl -v \
+    -b ${COOKIEJAR} \
+    ${URL}/private/secret.txt
 
-# # now log out
-# curl -v -X POST \
-#     -c ${COOKIEJAR} \
-#     ${URL}/api/logout
+# now log out
+curl -v -X POST \
+    -c ${COOKIEJAR} \
+    ${URL}/api/logout
 
-# # this should fail since the cookie should have been removed from the cookie jar
-# curl -v \
-#     -b ${COOKIEJAR} \
-#     ${URL}/private/secret.txt
+# this should fail since the cookie should have been removed from the cookie jar
+curl -v \
+    -b ${COOKIEJAR} \
+    ${URL}/private/secret.txt

@@ -46,11 +46,15 @@ struct http_transaction {
     buffer_t resp_headers;
     buffer_t resp_body;
 
+    bool persist;
+
     struct http_client *client;
 };
 
 struct http_client {
     struct bufio *bufio;
+
+    bool persist;
 };
 
 void http_setup_client(struct http_client *, struct bufio *bufio);

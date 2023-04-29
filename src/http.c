@@ -32,8 +32,8 @@ char *get_jwt_cookie(struct http_transaction *ta);
 static bool handle_api_logout(struct http_transaction *ta);
 static bool handle_api_get(struct http_transaction *ta);
 static bool handle_api_post(struct http_transaction *ta);
-// static variables 
-static const char * NEVER_EMBED_A_SECRET_IN_CODE = "supa secret";
+// static variables
+static const char *NEVER_EMBED_A_SECRET_IN_CODE = "supa secret";
 static const char *USERNAME = "user0";
 static const char *PASSWORD = "thepassword";
 // Need macros here because of the sizeof
@@ -48,11 +48,11 @@ http_parse_request(struct http_transaction *ta)
 {
     size_t req_offset;
     ssize_t len = bufio_readline(ta->client->bufio, &req_offset);
-    if (len < 2)       // error, EOF, or less than 2 characters
+    if (len < 2) // error, EOF, or less than 2 characters
         return false;
 
     char *request = bufio_offset2ptr(ta->client->bufio, req_offset);
-    request[len-2] = '\0';  // replace LF with 0 to ensure zero-termination
+    request[len - 2] = '\0'; // replace LF with 0 to ensure zero-termination
     char *endptr;
     char *method = strtok_r(request, " ", &endptr);
     if (method == NULL)
@@ -72,14 +72,17 @@ http_parse_request(struct http_transaction *ta)
     ta->req_path = bufio_ptr2offset(ta->client->bufio, req_path);
 
     char *http_version = strtok_r(NULL, CR, &endptr);
-    if (http_version == NULL)  // would be HTTP 0.9
+    if (http_version == NULL) // would be HTTP 0.9
         return false;
 
     // record client's HTTP version in request
     if (!strcmp(http_version, "HTTP/1.1"))
         ta->req_version = HTTP_1_1;
     else if (!strcmp(http_version, "HTTP/1.0"))
+    {
         ta->req_version = HTTP_1_0;
+        ta->persist = false;
+    }
     else
         return false;
 
@@ -90,20 +93,26 @@ http_parse_request(struct http_transaction *ta)
 static bool
 http_process_headers(struct http_transaction *ta)
 {
-    for (;;) {
+    if (ta->req_version == HTTP_1_1)
+    {
+        ta->persist = true;
+    }
+
+    for (;;)
+    {
         size_t header_offset;
         ssize_t len = bufio_readline(ta->client->bufio, &header_offset);
         if (len <= 0)
             return false;
 
         char *header = bufio_offset2ptr(ta->client->bufio, header_offset);
-        if (len == 2 && STARTS_WITH(header, CRLF))       // empty CRLF
+        if (len == 2 && STARTS_WITH(header, CRLF)) // empty CRLF
             return true;
 
-        header[len-2] = '\0';
-        /* Each header field consists of a name followed by a 
-         * colon (":") and the field value. Field names are 
-         * case-insensitive. The field value MAY be preceded by 
+        header[len - 2] = '\0';
+        /* Each header field consists of a name followed by a
+         * colon (":") and the field value. Field names are
+         * case-insensitive. The field value MAY be preceded by
          * any amount of LWS, though a single SP is preferred.
          */
         char *endptr;
@@ -118,21 +127,30 @@ http_process_headers(struct http_transaction *ta)
 
         // you may print the header like so
         // printf("Header: %s: %s\n", field_name, field_value);
-        if (!strcasecmp(field_name, "Content-Length")) {
+        if (!strcasecmp(field_name, "Content-Length"))
+        {
             ta->req_content_len = atoi(field_value);
         }
 
         /* Handle other headers here. Both field_value and field_name
          * are zero-terminated strings.
          */
+
+        if (!strcasecmp(field_name, "Connection"))
+        {
+
+            if (!strcasecmp(field_value, "Close"))
+            {
+                ta->persist = false;
+            }
+        }
     }
 }
 
 const int MAX_HEADER_LEN = 2048;
 
 /* add a formatted header to the response buffer. */
-void 
-http_add_header(buffer_t * resp, char* key, char* fmt, ...)
+void http_add_header(buffer_t *resp, char *key, char *fmt, ...)
 {
     va_list ap;
 
@@ -155,16 +173,17 @@ add_content_length(buffer_t *res, size_t len)
     http_add_header(res, "Content-Length", "%ld", len);
 }
 
-/* start the response by writing the first line of the response 
+/* start the response by writing the first line of the response
  * to the response buffer.  Used in send_response_header */
 static void
-start_response(struct http_transaction * ta, buffer_t *res)
+start_response(struct http_transaction *ta, buffer_t *res)
 {
     buffer_init(res, 80);
 
     buffer_appends(res, "HTTP/1.0 ");
 
-    switch (ta->resp_status) {
+    switch (ta->resp_status)
+    {
     case HTTP_OK:
         buffer_appends(res, "200 OK");
         break;
@@ -212,8 +231,7 @@ send_response_header(struct http_transaction *ta)
     buffer_appends(&ta->resp_headers, CRLF);
 
     buffer_t *response_and_headers[2] = {
-        &response, &ta->resp_headers
-    };
+        &response, &ta->resp_headers};
 
     int rc = bufio_sendbuffers(ta->client->bufio, response_and_headers, 2);
     buffer_delete(&response);
@@ -232,8 +250,7 @@ send_response(struct http_transaction *ta)
     start_response(ta, &response);
 
     buffer_t *response_and_headers[3] = {
-        &response, &ta->resp_headers, &ta->resp_body
-    };
+        &response, &ta->resp_headers, &ta->resp_body};
 
     int rc = bufio_sendbuffers(ta->client->bufio, response_and_headers, 3);
     buffer_delete(&response);
@@ -244,7 +261,7 @@ const int MAX_ERROR_LEN = 2048;
 
 /* Send an error response. */
 static bool
-send_error(struct http_transaction * ta, enum http_response_status status, const char *fmt, ...)
+send_error(struct http_transaction *ta, enum http_response_status status, const char *fmt, ...)
 {
     va_list ap;
 
@@ -262,11 +279,11 @@ send_error(struct http_transaction * ta, enum http_response_status status, const
 static bool
 send_not_found(struct http_transaction *ta)
 {
-    return send_error(ta, HTTP_NOT_FOUND, "File %s not found", 
-        bufio_offset2ptr(ta->client->bufio, ta->req_path));
+    return send_error(ta, HTTP_NOT_FOUND, "File %s not found",
+                      bufio_offset2ptr(ta->client->bufio, ta->req_path));
 }
 
-/* A start at assigning an appropriate mime type.  Real-world 
+/* A start at assigning an appropriate mime type.  Real-world
  * servers use more extensive lists such as /etc/mime.types
  */
 static const char *
@@ -300,10 +317,10 @@ guess_mime_type(char *filename)
 
     if (!strcasecmp(suffix, ".svg"))
         return "image/svg+xml";
-    
-// add extra checks for proper files 
-// make sure two dots are not present, path parsing ; follow code that gets to the static file serving 
-// main function for handeling file is handle_transaction; add .. check in there; http error code do not serve file 
+
+    // add extra checks for proper files
+    // make sure two dots are not present, path parsing ; follow code that gets to the static file serving
+    // main function for handeling file is handle_transaction; add .. check in there; http error code do not serve file
 
     return "text/plain";
 }
@@ -313,39 +330,42 @@ static bool
 handle_static_asset(struct http_transaction *ta, char *basedir)
 {
     char fname[PATH_MAX];
-    // extra char arrays to hold the file path 
+    // extra char arrays to hold the file path
     char alternative_path[PATH_MAX];
     char base_path[PATH_MAX];
     char *req_path = bufio_offset2ptr(ta->client->bufio, ta->req_path);
     // The code below is vulnerable to an attack.  Can you see
     // which?  Fix it to avoid indirect object reference (IDOR) attacks.
 
-    if (strstr(req_path, "..") != NULL) {
+    if (strstr(req_path, "..") != NULL)
+    {
         return send_error(ta, HTTP_NOT_FOUND, "Invalid path.");
     }
     snprintf(fname, sizeof fname, "%s%s", basedir, req_path);
-    // check to see if the requested path has "/" 
+    // check to see if the requested path has "/"
     // also check if the requested file is not found then we update fname to /index.html
-    if (strcmp(req_path, "/") == 0 || access(fname, R_OK) != 0) {
+    if (strcmp(req_path, "/") == 0 || access(fname, R_OK) != 0)
+    {
         snprintf(fname, sizeof fname, "%s/index.html", basedir);
     }
-   //Resolve the file path and base directory path 
-   // if any erorrs are found then return 404 Error
-    if (!realpath(fname, alternative_path) || !realpath(basedir, base_path)) {  
+    // Resolve the file path and base directory path
+    //  if any erorrs are found then return 404 Error
+    if (!realpath(fname, alternative_path) || !realpath(basedir, base_path))
+    {
         return send_not_found(ta);
     }
-    // Checks if file path starts with resolved base directory 
-    // Return 404 Error if it doesnt start with it 
-    if (strncmp(alternative_path, base_path, strlen(base_path)) != 0) {
+    // Checks if file path starts with resolved base directory
+    // Return 404 Error if it doesnt start with it
+    if (strncmp(alternative_path, base_path, strlen(base_path)) != 0)
+    {
         return send_error(ta, HTTP_NOT_FOUND, "Invalid path.");
-    
     }
     // Checks to see if file to be served is accessible
     // If it is not then send 404 Error
-    if (access(fname, R_OK)) {
-    
+    if (access(fname, R_OK))
+    {
+
         return send_not_found(ta);
-       
     }
 
     // Determine file size
@@ -355,7 +375,8 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
         return send_error(ta, HTTP_INTERNAL_ERROR, "Could not stat file.");
 
     int filefd = open(fname, O_RDONLY);
-    if (filefd == -1) {
+    if (filefd == -1)
+    {
         return send_not_found(ta);
     }
 
@@ -382,40 +403,38 @@ out:
 static bool
 handle_api(struct http_transaction *ta)
 {
-    // handle login and logout 
+    // handle login and logout
     char *buff = bufio_offset2ptr(ta->client->bufio, 0);
     char *path = buff + ta->req_body;
 
-    if (STARTS_WITH(path, "/api/login") == 0) {
-        if (ta->req_method == HTTP_POST) {
+    if (STARTS_WITH(path, "/api/login") == 0)
+    {
+        if (ta->req_method == HTTP_POST)
+        {
             return handle_api_post(ta);
         }
-        else if (ta->req_method == HTTP_GET) {
+        else if (ta->req_method == HTTP_GET)
+        {
             return handle_api_get(ta);
         }
-        
-    
     }
-    else if ( STARTS_WITH(path, "/api/logout") == 0) {
+    else if (STARTS_WITH(path, "/api/logout") == 0)
+    {
         return handle_api_logout(ta);
-    
     }
 
     return send_error(ta, HTTP_NOT_FOUND, "API not implemented");
-   
 }
 
 /* Set up an http client, associating it with a bufio buffer. */
-void 
-http_setup_client(struct http_client *self, struct bufio *bufio)
+void http_setup_client(struct http_client *self, struct bufio *bufio)
 {
     self->bufio = bufio;
 }
 
 /* Handle a single HTTP transaction.  Returns true on success. */
 // handle different types of request
-bool
-http_handle_transaction(struct http_client *self)
+bool http_handle_transaction(struct http_client *self)
 {
     struct http_transaction ta;
     memset(&ta, 0, sizeof ta);
@@ -427,7 +446,8 @@ http_handle_transaction(struct http_client *self)
     if (!http_process_headers(&ta))
         return false;
 
-    if (ta.req_content_len > 0) {
+    if (ta.req_content_len > 0)
+    {
         int rc = bufio_read(self->bufio, ta.req_content_len, &ta.req_body);
         if (rc != ta.req_content_len)
             return false;
@@ -443,31 +463,38 @@ http_handle_transaction(struct http_client *self)
 
     bool rc = false;
     char *req_path = bufio_offset2ptr(ta.client->bufio, ta.req_path);
-    if (STARTS_WITH(req_path, "/api")) {
+    if (STARTS_WITH(req_path, "/api"))
+    {
         rc = handle_api(&ta);
-    } else
-    if (STARTS_WITH(req_path, "/private")) {
+    }
+    else if (STARTS_WITH(req_path, "/private"))
+    {
         /* not implemented */
-    } 
-    else {
+    }
+    else
+    {
         rc = handle_static_asset(&ta, server_root);
     }
 
     buffer_delete(&ta.resp_headers);
     buffer_delete(&ta.resp_body);
 
+    ta.client->persist = ta.persist;
+
     return rc;
 }
-// helper function for get/post request authenticate 
+// helper function for get/post request authenticate
 
-static bool handle_api_post(struct http_transaction *ta) {
+static bool handle_api_post(struct http_transaction *ta)
+{
     char *buff = bufio_offset2ptr(ta->client->bufio, 0);
     char *body = buff + ta->req_body;
     // Parse the JSON body
     json_error_t err;
     json_t *req = json_loads(body, 0, &err);
 
-    if (req == NULL) {
+    if (req == NULL)
+    {
         return send_error(ta, HTTP_BAD_REQUEST, "BAD JSON REQUEST");
     }
 
@@ -475,24 +502,26 @@ static bool handle_api_post(struct http_transaction *ta) {
 
     const char *username, *password;
 
-    if (json_unpack(req, "{s:s, s:s}", "username", &username, "password", &password) == -1) {
+    if (json_unpack(req, "{s:s, s:s}", "username", &username, "password", &password) == -1)
+    {
         return send_error(ta, HTTP_BAD_REQUEST, "Missing username and password!");
     }
 
-    // If the username and password matches 
-    if (strcmp(username, USERNAME) != 0 || strcmp(password, PASSWORD) != 0) {
+    // If the username and password matches
+    if (strcmp(username, USERNAME) != 0 || strcmp(password, PASSWORD) != 0)
+    {
         json_decref(req);
         return send_error(ta, HTTP_PERMISSION_DENIED, "Invalid username or password");
-    
     }
-    // free the object since it is no longer needed 
+    // free the object since it is no longer needed
     json_decref(req);
 
     // create a token object
     jwt_t *token;
     int rc = jwt_new(&token);
 
-    if (rc) {
+    if (rc)
+    {
         return send_error(ta, HTTP_INTERNAL_ERROR, "Error with token");
     }
     // Set the claim for token
@@ -501,225 +530,221 @@ static bool handle_api_post(struct http_transaction *ta) {
     jwt_add_grant_int(token, "iat", tim);
     jwt_add_grant_int(token, "exp", tim + 3600 * 24);
 
-    // Set algo for secret key 
-    jwt_set_alg(token, JWT_ALG_HS256, (unsigned char*)NEVER_EMBED_A_SECRET_IN_CODE, strlen(NEVER_EMBED_A_SECRET_IN_CODE));
+    // Set algo for secret key
+    jwt_set_alg(token, JWT_ALG_HS256, (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE, strlen(NEVER_EMBED_A_SECRET_IN_CODE));
 
     char *encode = jwt_encode_str(token);
     jwt_free(token);
 
-    if (encode == NULL) {
+    if (encode == NULL)
+    {
         return send_error(ta, HTTP_INTERNAL_ERROR, "Error with encoding token");
-    
     }
 
     // Try to set the cookie in the response header??
-    
-    http_add_header(&ta->resp_headers,"Set-Cookie: jwt=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=%d\r\n", encode, 3600 * 24 );
-    
 
-   json_t *claim = json_pack("{s:I, s:I, s:s}", "exp", tim + 3600 *24, "iat", tim, "sub", USERNAME);
-   // convert the JSON object to string 
-   char *str_claim = json_dumps(claim, 0);
+    http_add_header(&ta->resp_headers, "Set-Cookie: jwt=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=%d\r\n", encode, 3600 * 24);
 
-   // free the object 
-   json_decref(claim);
-   // Append the claim string to request body 
-   buffer_append(&ta->resp_body, str_claim, strlen(str_claim));
+    json_t *claim = json_pack("{s:I, s:I, s:s}", "exp", tim + 3600 * 24, "iat", tim, "sub", USERNAME);
+    // convert the JSON object to string
+    char *str_claim = json_dumps(claim, 0);
+
+    // free the object
+    json_decref(claim);
+    // Append the claim string to request body
+    buffer_append(&ta->resp_body, str_claim, strlen(str_claim));
+
     // free string object
-   free(str_claim);
-   // free encoded JWT 
-   free(encode);
-   // Set response status 
-   ta->resp_status = HTTP_OK;
-
-   return true;
-
+    free(str_claim);
+    // free encoded JWT
+    free(encode);
+    // Set response status
+    ta->resp_status = HTTP_OK;
+    return true;
 }
-// Handle the get request 
-static bool handle_api_get(struct http_transaction *ta) {
+// Handle the get request
+static bool handle_api_get(struct http_transaction *ta)
+{
     // Gets the JWT cookie value from header
     char *cookie = get_jwt_cookie(ta);
     // If cookie value is found then decode it
-    if (cookie != NULL) {
-    jwt_t *decode_token;
-    int rc = jwt_decode(&decode_token, cookie, (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE, strlen(NEVER_EMBED_A_SECRET_IN_CODE));
-    // If sucessfull decoding then check if token is expired
-    if (rc == 0) {
-    // get the current time and expiration time
-    time_t tim = time(NULL);
-    time_t exp = jwt_get_grant_int(decode_token, "exp");
-    // If the token is not expired extract the sub claim and return the JSON
-    if (tim < exp) {
-        const char *sub = jwt_get_grant(decode_token, "sub");
-        json_t *claim = json_pack("{s:s, s:I, s:I}", "sub", sub, "iat", jwt_get_grant_int(decode_token, "iat"), "exp", exp);
-        char *claim_str = json_dumps(claim, 0);
-        buffer_append(&ta->resp_body, claim_str, strlen(claim_str));
-        // Append the JSON object to the response body and set the status 
-        json_decref(claim);
-        free(claim_str);
-        jwt_free(decode_token);
+    if (cookie != NULL)
+    {
+        jwt_t *decode_token;
+        int rc = jwt_decode(&decode_token, cookie, (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE, strlen(NEVER_EMBED_A_SECRET_IN_CODE));
+        // If sucessfull decoding then check if token is expired
+        if (rc == 0)
+        {
+            // get the current time and expiration time
+            time_t tim = time(NULL);
+            time_t exp = jwt_get_grant_int(decode_token, "exp");
+            // If the token is not expired extract the sub claim and return the JSON
+            if (tim < exp)
+            {
+                const char *sub = jwt_get_grant(decode_token, "sub");
+                json_t *claim = json_pack("{s:s, s:I, s:I}", "sub", sub, "iat", jwt_get_grant_int(decode_token, "iat"), "exp", exp);
+                char *claim_str = json_dumps(claim, 0);
+                buffer_append(&ta->resp_body, claim_str, strlen(claim_str));
+                // Append the JSON object to the response body and set the status
+                json_decref(claim);
+                free(claim_str);
+                jwt_free(decode_token);
 
-        ta->resp_status = HTTP_OK;
-        free(cookie);
-        return true;
-        
-    
-    
+                ta->resp_status = HTTP_OK;
+                free(cookie);
+                return true;
+            }
+            else
+            {
+                json_t *empty_obect = json_object();
+                char *str = json_dumps(empty_obect, 0);
+                buffer_append(&ta->resp_body, str, strlen(str));
+                json_decref(empty_obect);
+                free(str);
+                ta->resp_status = HTTP_OK;
+                free(cookie);
+                return true;
+            }
+        }
     }
-    else {
-        json_t *empty_obect = json_object();
-        char *str = json_dumps(empty_obect, 0);
-        buffer_append(&ta->resp_body, str, strlen(str));
-        json_decref(empty_obect);
-        free(str);
-        ta->resp_status = HTTP_OK;
-        free(cookie);
-        return true;
-    }
-    
-    }
- }
- // If the JWT cookie is not found or invalid return empty JSON object
- buffer_appends(&ta->resp_body, "{}");
- ta->resp_status = HTTP_OK;
- return true;
-
+    // If the JWT cookie is not found or invalid return empty JSON object
+    buffer_appends(&ta->resp_body, "{}");
+    ta->resp_status = HTTP_OK;
+    return true;
 }
 // Handles the API logout
-static bool handle_api_logout(struct http_transaction *ta) {
-// Checks if the method is a post request
-if (ta->req_method != HTTP_POST) {
-    return send_error(ta, HTTP_NOT_FOUND, "API not implemented");
+static bool handle_api_logout(struct http_transaction *ta)
+{
+    // Checks if the method is a post request
+    if (ta->req_method != HTTP_POST)
+    {
+        return send_error(ta, HTTP_NOT_FOUND, "API not implemented");
     }
     // set the JWT cookie header
     buffer_appends(&ta->resp_headers, "Set-Cookie: jwt=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0\r\n");
-    // set the status 
+    // set the status
     ta->resp_status = HTTP_OK;
     return true;
 }
 // JWT cookie checker in header
-char *get_jwt_cookie(struct http_transaction *ta) {
+char *get_jwt_cookie(struct http_transaction *ta)
+{
     // gets value of cookie header in transaction
     const char *cookie = http_request_header(ta, "Cookie");
     // if the cookie header ecists then set prefix in header
-    if (cookie != NULL) {
-    
+    if (cookie != NULL)
+    {
+
         const char *prefix = "jwt=";
         const char *start = strstr(cookie, prefix);
         // if the prefix is found, extract the JWT cookie value
-        if (start != NULL) {
+        if (start != NULL)
+        {
             start += strlen(prefix);
             const char *end = strchr(start, ';');
-        //looks for semicolon
-        // If it is found then JWT cookie value extends to the cookie header
-            if (end == NULL) {
+            // looks for semicolon
+            //  If it is found then JWT cookie value extends to the cookie header
+            if (end == NULL)
+            {
                 end = cookie + strlen(cookie);
-            
             }
             int length = end - start;
             // allocates memory to store the new JWT cookie value
             char *jwt_cookie = malloc(length + 1);
-            // Checks if allocation is valid 
-            if (jwt_cookie == NULL) {
+            // Checks if allocation is valid
+            if (jwt_cookie == NULL)
+            {
                 return NULL;
             }
             // Copy the JWT cookie value to the new string and add null terminator
-            else {
-            strncpy(jwt_cookie, start, length);
+            else
+            {
+                strncpy(jwt_cookie, start, length);
                 jwt_cookie[length] = '\0';
                 return jwt_cookie;
-                
             }
-            
-    }
-
+        }
     }
     // return null if header does not exist
     return NULL;
-
-
 }
 // translate the cookie header
-const char *http_request_header(struct http_transaction *ta, const char *header) {
+const char *http_request_header(struct http_transaction *ta, const char *header)
+{
     // Looks for the start of the header string in the response header
     const char *start = ta->resp_headers.buf;
     bool tracker = false;
-    // loop until header is found or end of string 
-    while (*start && !tracker) {
-    // compares current position with the request header
-        if (strncasecmp(start, header, strlen(header)) == 0) {
-        // increment the pointer
+    // loop until header is found or end of string
+    while (*start && !tracker)
+    {
+        // compares current position with the request header
+        if (strncasecmp(start, header, strlen(header)) == 0)
+        {
+            // increment the pointer
             start += strlen(header);
             // checks to see if the value is a colon
-            if (*start == ':') {
+            if (*start == ':')
+            {
                 start++;
                 // checks to see if value is a space
-                while (*start == ' ') {
+                while (*start == ' ')
+                {
                     start++;
                 }
-            // find the end of the header
-            const char *end = strchr(start, '\r');
-            if (end) {
-            // calculate the length of header
-                int length = end - start;
-                // allocate memory for the header value string and null terminator
-                char *value = malloc(length + 1);
-                if (value) {
-                //copy header value
-                    strncpy(value, start, length);
-                    value[length] = '\0';
-                    // return value
-                    return value;
+                // find the end of the header
+                const char *end = strchr(start, '\r');
+                if (end)
+                {
+                    // calculate the length of header
+                    int length = end - start;
+                    // allocate memory for the header value string and null terminator
+                    char *value = malloc(length + 1);
+                    if (value)
+                    {
+                        // copy header value
+                        strncpy(value, start, length);
+                        value[length] = '\0';
+                        // return value
+                        return value;
+                    }
                 }
-
-            
-            
+                tracker = true;
             }
-            tracker = true;
-        
         }
-    
-    
-    
+        // find the next response in header and increment the pointer
+        start = strchr(start, '\n');
+        if (start)
+        {
+            start++;
+        }
     }
-    // find the next response in header and increment the pointer
-    start = strchr(start, '\n');
-    if (start) {
-        start++;
-    }
-
-}
     return NULL;
 }
 
 // Serving files first - when request is made to server you should be able to return the file information through a file return protocol
 // Authentication in file serving (#1)
 // file streaming - streaming a very large file; return content of file but transfer part of a file at the same time; sending file piece by piece through a differnt request
-// Server will be multithreaded; 
-// fully understand http.c code 
+// Server will be multithreaded;
+// fully understand http.c code
 // ipv6 support; lecture notes on independent socket programming
 // curl localhost:4500/somepath
-//right arrow get 
-
+// right arrow get
 
 // server loop accepts connections
 // http handle transactions is called everytime a connection is called
-// add authentification there; not implemented 
-//handlestaticasset
-//handle api; figure out login stuff
+// add authentification there; not implemented
+// handlestaticasset
+// handle api; figure out login stuff
 
-//jwt 
+// jwt
 
 // curl -v used to debug network connections; you can manually see what is coming in and out in the headers
 
-//curl -i -T /home/ugrads/majors/kabeerb/CS3214/Projects/Personal_Server/pserv/src/http.c http://localhost:4521/
+// curl -i -T /home/ugrads/majors/kabeerb/CS3214/Projects/Personal_Server/pserv/src/http.c http://localhost:4521/
 
-
-
-//curl request with an invalid file; 
-// curl command to get a file: curl link /filname
-// run -p 4521 -R /home/ugrads/majors/kabeerb/CS3214/Projects/Personal_Server/pserv/tests/test_root_data
-// ./server_unit_te./server_unit_test_pserv.py -s /home/ugrads/majors/kabeerb/CS3214/Projects/Personal_Server/pserv/src/server 
-
+// curl request with an invalid file;
+//  curl command to get a file: curl link /filname
+//  run -p 4521 -R /home/ugrads/majors/kabeerb/CS3214/Projects/Personal_Server/pserv/tests/test_root_data
+//  ./server_unit_te./server_unit_test_pserv.py -s /home/ugrads/majors/kabeerb/CS3214/Projects/Personal_Server/pserv/src/server
 
 // curl http localhost;

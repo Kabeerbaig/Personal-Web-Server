@@ -151,12 +151,32 @@ http_process_headers(struct http_transaction *ta)
         {
             char *encoded_cookie = field_value;
 
-            printf("something: %s\n", encoded_cookie);
+            char *token = strstr(encoded_cookie, "auth_token="); // tokenize the string by semicolon delimiter
+            token += strlen("auth_token=");
 
-            // parse the cookie string
-            // Cookie:<field_value>
-            // field_value = name1;name2;...
-            // if name == "auth_token" then decode the value (in this case, the value should be the encoded jwt)
+            jwt_t *ymtoken;
+            jwt_decode(&ymtoken, token, (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE, strlen(NEVER_EMBED_A_SECRET_IN_CODE));
+            char *grants = jwt_get_grants_json(ymtoken, NULL);
+            json_error_t error;
+
+            json_t *jgrants = json_loadb(grants, strlen(grants), 0, &error);
+            free(grants);
+
+            json_int_t exp, iat;
+            const char *sub;
+            json_unpack(jgrants, "{s:I, s:I, s:s}",
+                        "exp", &exp, "iat", &iat, "sub", &sub);
+
+            time_t now = time(NULL);
+
+            if (now < exp)
+            {
+                ta->cookie = token;
+                printf("Here is the cookie %s\n", ta->cookie);
+                ta->authenticated = true;
+            }
+
+            ta->authenticated = false;
         }
     }
 }

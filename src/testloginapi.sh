@@ -1,10 +1,10 @@
 
 # change this number as per instruction to avoid conflicts.
-PORT=10000
+PORT=11435
 
 # to test against a working implementation (and see the intended responses)
 # change this variable, e.g.
-#URL=http://hazelnut.rlogin:12345
+# URL=http://redbud.rlogin:12345
 URL=http://localhost:${PORT}
 
 # the file in which curl stores cookies across runs
@@ -28,23 +28,23 @@ curl -v \
     -b ${COOKIEJAR} \
     ${URL}/api/login
 
-# create a 'private' folder first for your server, and
-# put a file `secret.txt` in it.
-# this should fail since credentials were not presented in the request
-curl -v \
-    ${URL}/private/secret.txt
+# # create a 'private' folder first for your server, and
+# # put a file `secret.txt` in it.
+# # this should fail since credentials were not presented in the request
+# curl -v \
+#     ${URL}/private/secret.txt
 
-# this should succeed since credentials are included (via the cookie jar)
-curl -v \
-    -b ${COOKIEJAR} \
-    ${URL}/private/secret.txt
+# # this should succeed since credentials are included (via the cookie jar)
+# curl -v \
+#     -b ${COOKIEJAR} \
+#     ${URL}/private/secret.txt
 
-# now log out
-curl -v -X POST \
-    -c ${COOKIEJAR} \
-    ${URL}/api/logout
+# # now log out
+# curl -v -X POST \
+#     -c ${COOKIEJAR} \
+#     ${URL}/api/logout
 
-# this should fail since the cookie should have been removed from the cookie jar
-curl -v \
-    -b ${COOKIEJAR} \
-    ${URL}/private/secret.txt
+# # this should fail since the cookie should have been removed from the cookie jar
+# curl -v \
+#     -b ${COOKIEJAR} \
+#     ${URL}/private/secret.txt

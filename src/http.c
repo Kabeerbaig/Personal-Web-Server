@@ -146,6 +146,18 @@ http_process_headers(struct http_transaction *ta)
                 ta->persist = false;
             }
         }
+
+        if (!strcasecmp(field_name, "Cookie"))
+        {
+            char *encoded_cookie = field_value;
+
+            printf("something: %s\n", encoded_cookie);
+
+            // parse the cookie string
+            // Cookie:<field_value>
+            // field_value = name1;name2;...
+            // if name == "auth_token" then decode the value (in this case, the value should be the encoded jwt)
+        }
     }
 }
 
@@ -487,7 +499,7 @@ static bool handle_api_post(struct http_transaction *ta)
     if (strcmp(username, USERNAME) == 0 || strcmp(password, PASSWORD) == 0)
     {
         // free the object since it is no longer needed
-        // json_decref(req);
+        json_decref(req);
 
         // create a token object
         jwt_t *mytoken;
@@ -522,17 +534,23 @@ static bool handle_api_post(struct http_transaction *ta)
             return send_error(ta, HTTP_INTERNAL_ERROR, "Error with encoding token");
         }
 
-        // Try to set the cookie in the response header??
-        http_add_header(&ta->resp_headers, "Set-Cookie: jwt=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=%d\r\n", encoded, token_expiration_time);
+        http_add_header(&ta->resp_headers, "Set-Cookie", "auth_token=%s; Path=/; Max-Age=%ld; SameSite=Lax; HttpOnly", encoded, token_expiration_time);
+
+        json_t *claim = json_pack("{s:I, s:I, s:s}", "exp", tim + 3600 * 24, "iat", tim, "sub", USERNAME);
         // convert the JSON object to string
-        char *str_claim = jwt_get_grants_json(mytoken, NULL);
+        char *str_claim = json_dumps(claim, 0);
+
         jwt_free(mytoken);
+        // free the object
+        json_decref(claim);
 
         // Append the claim string to request body
-        buffer_append(&ta->resp_body, str_claim, strlen(str_claim));
-
+        buffer_appends(&ta->resp_body, str_claim);
         // Set response status
         ta->resp_status = HTTP_OK;
+
+        http_add_header(&ta->resp_headers, "Content-Type", "application/json");
+
         return send_response(ta);
     }
 

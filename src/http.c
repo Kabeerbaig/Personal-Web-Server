@@ -26,6 +26,16 @@
 #include "bufio.h"
 #include "main.h"
 
+#include <jwt.h>
+#include <jansson.h>
+
+// Static Variables
+static const char *NEVER_EMBED_A_SECRET_IN_CODE = "supa secret";
+static const char *USERNAME = "user0";
+static const char *PASSWORD = "thepassword";
+
+// Helper Functions
+static bool handle_api_post(struct http_transaction *ta);
 static bool handle_api_get(struct http_transaction *ta);
 
 // Need macros here because of the sizeof
@@ -383,7 +393,7 @@ handle_api(struct http_transaction *ta)
     {
         if (ta->req_method == HTTP_POST)
         {
-            // return handle_api_post(ta);
+            return handle_api_post(ta);
         }
         else if (ta->req_method == HTTP_GET)
         {
@@ -452,6 +462,82 @@ bool http_handle_transaction(struct http_client *self)
     ta.client->persist = ta.persist;
 
     return rc;
+}
+
+static bool handle_api_post(struct http_transaction *ta)
+{
+    char *buff = bufio_offset2ptr(ta->client->bufio, 0);
+    char *body = buff + ta->req_body;
+
+    // Parse the JSON body
+    json_error_t err;
+    json_t *req = json_loadb(body, ta->req_content_len, 0, &err);
+
+    if (req == NULL)
+    {
+        return send_error(ta, HTTP_BAD_REQUEST, "BAD JSON REQUEST");
+    }
+    // Get the username and password from the json object
+    const char *username, *password;
+    if (json_unpack(req, "{s:s, s:s}", "username", &username, "password", &password) == -1)
+    {
+        return send_error(ta, HTTP_BAD_REQUEST, "Missing username and password!");
+    }
+    // If the username and password matches
+    if (strcmp(username, USERNAME) == 0 || strcmp(password, PASSWORD) == 0)
+    {
+        // free the object since it is no longer needed
+        // json_decref(req);
+
+        // create a token object
+        jwt_t *mytoken;
+        int rc = jwt_new(&mytoken);
+        if (rc)
+        {
+            return send_error(ta, HTTP_INTERNAL_ERROR, "jwt_new");
+        }
+        // Set the claim for token
+        rc = jwt_add_grant(mytoken, "sub", USERNAME);
+        if (rc)
+            return send_error(ta, HTTP_INTERNAL_ERROR, "jwt_add_grant sub");
+
+        time_t tim = time(NULL);
+        rc = jwt_add_grant_int(mytoken, "iat", tim);
+        if (rc)
+            return send_error(ta, HTTP_INTERNAL_ERROR, "jwt_add_grant iat");
+
+        rc = jwt_add_grant_int(mytoken, "exp", tim + 3600 * 24);
+        if (rc)
+            return send_error(ta, HTTP_INTERNAL_ERROR, "jwt_add_grant exp");
+
+        // Set algo for secret key
+        rc = jwt_set_alg(mytoken, JWT_ALG_HS256, (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE, strlen(NEVER_EMBED_A_SECRET_IN_CODE));
+        if (rc)
+            return send_error(ta, HTTP_INTERNAL_ERROR, "jwt_set_alg");
+
+        char *encoded = jwt_encode_str(mytoken);
+
+        if (encoded == NULL)
+        {
+            return send_error(ta, HTTP_INTERNAL_ERROR, "Error with encoding token");
+        }
+
+        // Try to set the cookie in the response header??
+        http_add_header(&ta->resp_headers, "Set-Cookie: jwt=%s; Path=/; HttpOnly; SameSite=Lax; Max-Age=%d\r\n", encoded, token_expiration_time);
+        // convert the JSON object to string
+        char *str_claim = jwt_get_grants_json(mytoken, NULL);
+        jwt_free(mytoken);
+
+        // Append the claim string to request body
+        buffer_append(&ta->resp_body, str_claim, strlen(str_claim));
+
+        // Set response status
+        ta->resp_status = HTTP_OK;
+        return send_response(ta);
+    }
+
+    json_decref(req);
+    return send_error(ta, HTTP_PERMISSION_DENIED, "Invalid username or password");
 }
 
 // Handle the get request

@@ -37,8 +37,8 @@ static const char *PASSWORD = "thepassword";
 // Helper Functions
 static bool handle_api_post(struct http_transaction *ta);
 static bool handle_api_get(struct http_transaction *ta);
-static bool handle_api_logout(struct http_transaction *ta);
 static char *streaming_MP4(struct http_transaction *ta);
+
 // Need macros here because of the sizeof
 #define CRLF "\r\n"
 #define CR "\r"
@@ -311,6 +311,15 @@ send_response_header(struct http_transaction *ta)
     start_response(ta, &response);
     buffer_appends(&ta->resp_headers, CRLF);
 
+    // Add header for streaming mp4
+    // checks the boolean flag to see if there is a stream request and adds the header
+
+    // if (ta->range_flag)
+    // {
+    //     http_add_header(&ta->resp_headers, "Accept-Ranges", "bytes");
+    // }
+    printf("Response Headers:\n%s\n", ta->resp_headers.buf);
+
     buffer_t *response_and_headers[2] = {
         &response, &ta->resp_headers};
 
@@ -405,7 +414,6 @@ guess_mime_type(char *filename)
 
     return "text/plain";
 }
-
 /* Handle HTTP transaction for static files. */
 static bool
 handle_static_asset(struct http_transaction *ta, char *basedir)
@@ -422,44 +430,35 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
     }
 
     snprintf(fname, sizeof fname, "%s%s", basedir, req_path);
+    char *alternative_path = realpath(fname, NULL);
 
-    if (html5_fallback)
+    // check to see if the requested path has "/"
+    // also check if the requested file is not found then we update fname to /index.html
+    if (strcmp(req_path, "/") == 0)
     {
-        char *alternative_path = realpath(fname, NULL);
+        snprintf(fname, sizeof fname, "%s/index.html", basedir);
+    }
 
-        // check to see if the requested path has "/"
-        // also check if the requested file is not found then we update fname to /index.html
-        if (strcasecmp(req_path, "/") == 0)
+    // If file cannot be found, return 200.html
+    else if (alternative_path == NULL)
+    {
+        snprintf(fname, sizeof fname, "%s/200.html", basedir);
+    }
+    // Checks if file path starts with resolved base directory
+    // Return 404 Error if it doesnt start with it
+    else if (alternative_path != NULL)
+    {
+
+        if (strstr(alternative_path, ".") != NULL)
         {
-            snprintf(fname, sizeof fname, "%s/index.html", basedir);
+            snprintf(fname, sizeof fname, "%s", alternative_path);
+        }
+        else
+        {
+            snprintf(fname, sizeof fname, "%s.html", alternative_path);
         }
 
-        // If file cannot be found, return 200.html
-        else if (alternative_path == NULL)
-        {
-            // alternative_path = realpath("/200.html", NULL);
-            // if (alternative_path == NULL)
-            // {
-            //     return send_not_found(ta);
-            // }
-            snprintf(fname, sizeof fname, "%s/200.html", basedir);
-        }
-        // Checks if file path starts with resolved base directory
-        // Return 404 Error if it doesnt start with it
-        else if (alternative_path != NULL)
-        {
-
-            if (strstr(alternative_path, ".") != NULL)
-            {
-                snprintf(fname, sizeof fname, "%s", alternative_path);
-            }
-            else
-            {
-                snprintf(fname, sizeof fname, "%s.html", alternative_path);
-            }
-
-            free(alternative_path);
-        }
+        free(alternative_path);
     }
 
     if (access(fname, R_OK))
@@ -486,35 +485,20 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
     http_add_header(&ta->resp_headers, "Content-Type", "%s", guess_mime_type(fname));
     off_t from = 0, to = st.st_size - 1;
 
-    // Handle the Range header
-    if (ta->range_flag)
+    // handle the video stream
+    if (ta->range_begin != -1)
     {
-        // set the from range
         from = ta->range_begin;
-
-        if (ta->range_end != -1)
-        {
-            // set the to range
-            to = ta->range_end;
-        }
-        else
-        {
-            // set to range to the last found byte
-            to = st.st_size - 1;
-        }
-        // check to see if requested value is valid
+        to = ta->range_end != -1 ? ta->range_end : st.st_size - 1;
         if (to >= st.st_size || from > to)
         {
-            return send_error(ta, HTTP_BAD_REQUEST, "Invalid byte range");
+            return send_error(ta, HTTP_BAD_REQUEST, "Invalid range");
         }
-        // set response to HTTP_PARTIAL_CONTENT if valid range
         ta->resp_status = HTTP_PARTIAL_CONTENT;
-        // add proper header response
         http_add_header(&ta->resp_headers, "Content-Range", "bytes %jd-%jd/%jd", from, to, st.st_size);
     }
     else
     {
-        // if no range is provided set from and last to last byte
         from = 0;
         to = st.st_size - 1;
         ta->resp_status = HTTP_OK;
@@ -541,14 +525,10 @@ handle_api(struct http_transaction *ta)
 {
     // handle login and logout
     char *req_path = bufio_offset2ptr(ta->client->bufio, ta->req_path);
+    printf("Req path: %s\n", req_path);
 
     if (STARTS_WITH(req_path, "/api/login"))
     {
-        if (strcasecmp(req_path, "/api/login") != 0)
-        {
-            return send_not_found(ta);
-        }
-
         if (ta->req_method == HTTP_POST)
         {
             return handle_api_post(ta);
@@ -560,7 +540,7 @@ handle_api(struct http_transaction *ta)
     }
     else if (STARTS_WITH(req_path, "/api/logout"))
     {
-        return handle_api_logout(ta);
+        // return handle_api_logout(ta);
     }
     else if (STARTS_WITH(req_path, "/api/video"))
     {
@@ -605,6 +585,8 @@ bool http_handle_transaction(struct http_client *self)
 
     bool rc = false;
     char *req_path = bufio_offset2ptr(ta.client->bufio, ta.req_path);
+    printf("Req path: %s\n", req_path);
+
     if (STARTS_WITH(req_path, "/api"))
     {
         rc = handle_api(&ta);
@@ -738,27 +720,6 @@ static bool handle_api_get(struct http_transaction *ta)
     return send_response(ta);
 }
 
-// Handles the API logout
-static bool handle_api_logout(struct http_transaction *ta)
-{
-    // Checks if the method is a post request
-    if (ta->req_method != HTTP_POST)
-    {
-        return send_error(ta, HTTP_NOT_FOUND, "API not implemented");
-    }
-    ta->authenticated = false;
-    ta->token = NULL;
-    // set the JWT cookie header
-    http_add_header(&ta->resp_headers, "Set-Cookie", "auth_token=%s; Path=/; Max-Age=%ld; HttpOnly", "", 0);
-
-    http_add_header(&ta->resp_headers, "Content-Type", "application/json");
-    buffer_appends(&ta->resp_body, "{Logging out}");
-
-    // set the status
-    ta->resp_status = HTTP_OK;
-    return send_response(ta);
-}
-
 static char *streaming_MP4(struct http_transaction *ta)
 {
     printf("MADE HERE\n");
@@ -830,6 +791,7 @@ static char *streaming_MP4(struct http_transaction *ta)
 
     return resp;
 }
+
 // Serving files first - when request is made to server you should be able to return the file information through a file return protocol
 // Authentication in file serving (#1)
 // file streaming - streaming a very large file; return content of file but transfer part of a file at the same time; sending file piece by piece through a differnt request

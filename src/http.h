@@ -54,6 +54,11 @@ struct http_transaction
 
     char *token;
     bool authenticated;
+    // my additions
+    bool range_flag;
+    size_t range_begin;
+    size_t range_end;
+    int status_code;
 };
 
 struct http_client

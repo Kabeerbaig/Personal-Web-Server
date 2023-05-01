@@ -57,7 +57,7 @@ server_loop(char *port_string)
         pthread_t thread;
         int *socket_ptr = malloc(sizeof(int));
         *socket_ptr = client_socket;
-        pthread_create(&thread, NULL, work_thread, socket_ptr);
+        pthread_create(&thread, NULL, &work_thread, socket_ptr);
     }
 }
 

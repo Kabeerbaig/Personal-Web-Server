@@ -153,8 +153,14 @@ http_process_headers(struct http_transaction *ta)
             char *encoded_cookie = field_value;
 
             char *token = strstr(encoded_cookie, "auth_token="); // tokenize the string by semicolon delimiter
+
+            if (token == NULL)
+            {
+                ta->authenticated = false;
+                continue;
+            }
             token += strlen("auth_token=");
-            printf("Cookie: %s\n", token);
+            // printf("Cookie: %s\n", token);
 
             jwt_t *ymtoken;
             jwt_decode(&ymtoken, token, (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE, strlen(NEVER_EMBED_A_SECRET_IN_CODE));
@@ -530,6 +536,15 @@ bool http_handle_transaction(struct http_client *self)
     buffer_init(&ta.resp_headers, 1024);
     http_add_header(&ta.resp_headers, "Server", "CS3214-Personal-Server");
     buffer_init(&ta.resp_body, 0);
+
+    if (ta.req_version == HTTP_1_1)
+    {
+        http_add_header(&ta.resp_headers, "Connection", "keep-alive");
+    } // add a response header
+    if (ta.req_version == HTTP_1_0)
+    {
+        http_add_header(&ta.resp_headers, "Connection", "close");
+    }
 
     bool rc = false;
     char *req_path = bufio_offset2ptr(ta.client->bufio, ta.req_path);

@@ -495,9 +495,17 @@ handle_api(struct http_transaction *ta)
         {
             return handle_api_get(ta);
         }
+        else
+        {
+            return send_error(ta, HTTP_METHOD_NOT_ALLOWED, "Method not allowed");
+        }
     }
     else if (STARTS_WITH(req_path, "/api/logout"))
     {
+        if (ta->req_method != HTTP_GET || ta->req_method != HTTP_POST)
+        {
+            return send_error(ta, HTTP_METHOD_NOT_ALLOWED, "Method not allowed");
+        }
         return handle_api_logout(ta);
     }
     return send_error(ta, HTTP_NOT_FOUND, "API not implemented");
@@ -548,6 +556,8 @@ bool http_handle_transaction(struct http_client *self)
 
     bool rc = false;
     char *req_path = bufio_offset2ptr(ta.client->bufio, ta.req_path);
+    printf("THE PATH: %s\n", req_path);
+
     if (STARTS_WITH(req_path, "/api"))
     {
         rc = handle_api(&ta);

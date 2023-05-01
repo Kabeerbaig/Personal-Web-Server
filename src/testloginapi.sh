@@ -4,8 +4,8 @@ PORT=11435
 
 # to test against a working implementation (and see the intended responses)
 # change this variable, e.g.
-URL=http://redbud.rlogin:12345
-# URL=http://localhost:${PORT}
+# URL=http://redbud.rlogin:12345
+URL=http://localhost:${PORT}
 
 # the file in which curl stores cookies across runs
 COOKIEJAR=cookies.txt

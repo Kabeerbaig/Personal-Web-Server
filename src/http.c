@@ -676,6 +676,7 @@ static bool handle_api_logout(struct http_transaction *ta)
     http_add_header(&ta->resp_headers, "Set-Cookie", "auth_token=%s; Path=/; Max-Age=%ld; HttpOnly", "", 0);
 
     http_add_header(&ta->resp_headers, "Content-Type", "application/json");
+    buffer_appends(&ta->resp_body, "{Logging out}");
 
     // set the status
     ta->resp_status = HTTP_OK;

@@ -209,7 +209,15 @@ http_process_headers(struct http_transaction *ta)
 
                     long start = strtol(field_value + str_length, NULL, 10);
                     // represents the end range
-                    long end = strtol(value + 1, NULL, 10);
+                    long end;
+                    if (strlen(value + 1) > 0)
+                    {
+                        end = strtol(value + 1, NULL, 10);
+                    }
+                    else
+                    {
+                        end = -1;
+                    }
                     // sets the values for the target struct, I added these variables
                     ta->range_begin = start;
                     ta->range_end = end;
@@ -306,10 +314,10 @@ send_response_header(struct http_transaction *ta)
     // Add header for streaming mp4
     // checks the boolean flag to see if there is a stream request and adds the header
 
-    if (ta->range_flag)
-    {
-        http_add_header(&ta->resp_headers, "Accept-Ranges", "bytes");
-    }
+    // if (ta->range_flag)
+    // {
+    //     http_add_header(&ta->resp_headers, "Accept-Ranges", "bytes");
+    // }
     printf("Response Headers:\n%s\n", ta->resp_headers.buf);
 
     buffer_t *response_and_headers[2] = {

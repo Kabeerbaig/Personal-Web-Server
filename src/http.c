@@ -761,7 +761,7 @@ static bool handle_api_logout(struct http_transaction *ta)
 
 static char *streaming_MP4(struct http_transaction *ta)
 {
-    printf("MADE HERE\n");
+    // printf("MADE HERE\n");
 
     // pointer to a dir struct
     DIR *dir;
@@ -827,7 +827,7 @@ static char *streaming_MP4(struct http_transaction *ta)
     }
     snprintf(resp + strlen(resp), resp_length - strlen(resp), "]");
     printf("%s\n", resp);
-
+    printf("HERE IS THE RESP: %s\n", resp);
     return resp;
 }
 // Serving files first - when request is made to server you should be able to return the file information through a file return protocol

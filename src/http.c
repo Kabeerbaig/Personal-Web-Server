@@ -37,6 +37,7 @@ static const char *PASSWORD = "thepassword";
 // Helper Functions
 static bool handle_api_post(struct http_transaction *ta);
 static bool handle_api_get(struct http_transaction *ta);
+static bool handle_api_logout(struct http_transaction *ta);
 
 // Need macros here because of the sizeof
 #define CRLF "\r\n"
@@ -462,10 +463,11 @@ static bool
 handle_api(struct http_transaction *ta)
 {
     // handle login and logout
-    char *buff = bufio_offset2ptr(ta->client->bufio, 0);
-    char *path = buff + ta->req_body;
-    if (STARTS_WITH(path, "/api/login") == 0)
+    char *req_path = bufio_offset2ptr(ta->client->bufio, ta->req_path);
+
+    if (STARTS_WITH(req_path, "/api/login"))
     {
+        printf("Attemping LOGIN\n");
         if (ta->req_method == HTTP_POST)
         {
             return handle_api_post(ta);
@@ -475,9 +477,9 @@ handle_api(struct http_transaction *ta)
             return handle_api_get(ta);
         }
     }
-    else if (STARTS_WITH(path, "/api/logout") == 0)
+    else if (STARTS_WITH(req_path, "/api/logout"))
     {
-        // return handle_api_logout(ta);
+        return handle_api_logout(ta);
     }
     return send_error(ta, HTTP_NOT_FOUND, "API not implemented");
 }
@@ -647,6 +649,26 @@ static bool handle_api_get(struct http_transaction *ta)
 
     buffer_appends(&ta->resp_body, "{}");
     http_add_header(&ta->resp_headers, "Content-Type", "application/json");
+    ta->resp_status = HTTP_OK;
+    return send_response(ta);
+}
+
+// Handles the API logout
+static bool handle_api_logout(struct http_transaction *ta)
+{
+    // Checks if the method is a post request
+    if (ta->req_method != HTTP_POST)
+    {
+        return send_error(ta, HTTP_NOT_FOUND, "API not implemented");
+    }
+    ta->authenticated = false;
+    ta->token = NULL;
+    // set the JWT cookie header
+    http_add_header(&ta->resp_headers, "Set-Cookie", "auth_token=%s; Path=/; Max-Age=%ld; HttpOnly", "", 0);
+
+    http_add_header(&ta->resp_headers, "Content-Type", "application/json");
+
+    // set the status
     ta->resp_status = HTTP_OK;
     return send_response(ta);
 }

@@ -392,7 +392,7 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
 
     // check to see if the requested path has "/"
     // also check if the requested file is not found then we update fname to /index.html
-    if (strcmp(req_path, "/") == 0)
+    if (strcasecmp(req_path, "/") == 0)
     {
         snprintf(fname, sizeof fname, "%s/index.html", basedir);
     }
@@ -400,6 +400,11 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
     // If file cannot be found, return 200.html
     else if (alternative_path == NULL)
     {
+        // alternative_path = realpath("/200.html", NULL);
+        // if (alternative_path == NULL)
+        // {
+        //     return send_not_found(ta);
+        // }
         snprintf(fname, sizeof fname, "%s/200.html", basedir);
     }
     // Checks if file path starts with resolved base directory
@@ -467,7 +472,11 @@ handle_api(struct http_transaction *ta)
 
     if (STARTS_WITH(req_path, "/api/login"))
     {
-        printf("Attemping LOGIN\n");
+        if (strcasecmp(req_path, "/api/login") != 0)
+        {
+            return send_not_found(ta);
+        }
+
         if (ta->req_method == HTTP_POST)
         {
             return handle_api_post(ta);

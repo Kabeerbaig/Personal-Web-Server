@@ -428,10 +428,8 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
     }
 
     snprintf(fname, sizeof fname, "%s%s", basedir, req_path);
-
     if (html5_fallback)
     {
-        char *alternative_path = realpath(fname, NULL);
 
         // check to see if the requested path has "/"
         // also check if the requested file is not found then we update fname to /index.html
@@ -440,31 +438,19 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
             snprintf(fname, sizeof fname, "%s/index.html", basedir);
         }
 
-        // If file cannot be found, return 200.html
-        else if (alternative_path == NULL)
+        else
         {
-            // alternative_path = realpath("/200.html", NULL);
-            // if (alternative_path == NULL)
-            // {
-            //     return send_not_found(ta);
-            // }
-            snprintf(fname, sizeof fname, "%s/200.html", basedir);
-        }
-        // Checks if file path starts with resolved base directory
-        // Return 404 Error if it doesnt start with it
-        else if (alternative_path != NULL)
-        {
+            snprintf(fname, sizeof fname, "%s%s.html", basedir, req_path);
 
-            if (strstr(alternative_path, ".") != NULL)
+            if (access(fname, R_OK) != 0)
             {
-                snprintf(fname, sizeof fname, "%s", alternative_path);
-            }
-            else
-            {
-                snprintf(fname, sizeof fname, "%s.html", alternative_path);
-            }
+                snprintf(fname, sizeof fname, "%s%s", basedir, req_path);
 
-            free(alternative_path);
+                if (access(fname, R_OK) != 0)
+                {
+                    snprintf(fname, sizeof fname, "%s/200.html", basedir);
+                }
+            }
         }
     }
 

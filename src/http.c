@@ -38,7 +38,8 @@ static const char *PASSWORD = "thepassword";
 static bool handle_api_post(struct http_transaction *ta);
 static bool handle_api_get(struct http_transaction *ta);
 static bool handle_api_logout(struct http_transaction *ta);
-static char *streaming_MP4(struct http_transaction *ta);
+static bool streaming_MP4(struct http_transaction *ta);
+
 // Need macros here because of the sizeof
 #define CRLF "\r\n"
 #define CR "\r"
@@ -152,8 +153,14 @@ http_process_headers(struct http_transaction *ta)
             char *encoded_cookie = field_value;
 
             char *token = strstr(encoded_cookie, "auth_token="); // tokenize the string by semicolon delimiter
+
+            if (token == NULL)
+            {
+                ta->authenticated = false;
+                continue;
+            }
             token += strlen("auth_token=");
-            printf("Cookie: %s\n", token);
+            // printf("Cookie: %s\n", token);
 
             jwt_t *ymtoken;
             jwt_decode(&ymtoken, token, (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE, strlen(NEVER_EMBED_A_SECRET_IN_CODE));
@@ -190,7 +197,6 @@ http_process_headers(struct http_transaction *ta)
                 ta->authenticated = false;
             }
         }
-        // Check for Range when processing header
         if (!strcasecmp(field_name, "Range"))
         {
             // check for bytes in header value
@@ -485,7 +491,6 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
     ta->resp_status = HTTP_OK;
     http_add_header(&ta->resp_headers, "Content-Type", "%s", guess_mime_type(fname));
     off_t from = 0, to = st.st_size - 1;
-
     // Handle the Range header
     if (ta->range_flag)
     {
@@ -557,24 +562,22 @@ handle_api(struct http_transaction *ta)
         {
             return handle_api_get(ta);
         }
+        else
+        {
+            return send_error(ta, HTTP_METHOD_NOT_ALLOWED, "Method not allowed");
+        }
     }
     else if (STARTS_WITH(req_path, "/api/logout"))
     {
+        if (ta->req_method != HTTP_GET || ta->req_method != HTTP_POST)
+        {
+            return send_error(ta, HTTP_METHOD_NOT_ALLOWED, "Method not allowed");
+        }
         return handle_api_logout(ta);
     }
     else if (STARTS_WITH(req_path, "/api/video"))
     {
         return streaming_MP4(ta);
-        // char *value = streaming_MP4(ta);
-        // if (value != NULL)
-        // {
-        //     send_response(ta);
-        //     return true;
-        // }
-        // else
-        // {
-        //     return false;
-        // }
     }
     return send_error(ta, HTTP_NOT_FOUND, "API not implemented");
 }
@@ -613,8 +616,19 @@ bool http_handle_transaction(struct http_client *self)
     http_add_header(&ta.resp_headers, "Server", "CS3214-Personal-Server");
     buffer_init(&ta.resp_body, 0);
 
+    if (ta.req_version == HTTP_1_1)
+    {
+        http_add_header(&ta.resp_headers, "Connection", "keep-alive");
+    } // add a response header
+    if (ta.req_version == HTTP_1_0)
+    {
+        http_add_header(&ta.resp_headers, "Connection", "close");
+    }
+
     bool rc = false;
     char *req_path = bufio_offset2ptr(ta.client->bufio, ta.req_path);
+    printf("THE PATH: %s\n", req_path);
+
     if (STARTS_WITH(req_path, "/api"))
     {
         rc = handle_api(&ta);
@@ -665,7 +679,7 @@ static bool handle_api_post(struct http_transaction *ta)
 
     if (username == NULL || password == NULL)
     {
-        return send_error(ta, HTTP_PERMISSION_DENIED, "Access permission denied");
+        return send_error(ta, HTTP_PERMISSION_DENIED, "Acess permission denied");
     }
     // If the username and password matches
     if (strcmp(username, USERNAME) == 0 && strcmp(password, PASSWORD) == 0)
@@ -768,8 +782,9 @@ static bool handle_api_logout(struct http_transaction *ta)
     ta->resp_status = HTTP_OK;
     return send_response(ta);
 }
+
 // handles stream of videos
-static char *streaming_MP4(struct http_transaction *ta)
+static bool streaming_MP4(struct http_transaction *ta)
 {
     // printf("MADE HERE\n");
 
@@ -777,12 +792,9 @@ static char *streaming_MP4(struct http_transaction *ta)
     DIR *dirk;
     // represents a directory entry
     struct dirent *path;
-    // retreive information about file
-    struct stat file;
-    // name of directory to search
-    char *directory = ".";
+
     // opens the directory and returns a pointer to DIR struct
-    dirk = opendir(directory);
+    dirk = opendir(server_root);
     // error check
     if (dirk == NULL)
     {
@@ -791,63 +803,47 @@ static char *streaming_MP4(struct http_transaction *ta)
     // stores response string
 
     json_t *array = json_array();
-    // allocates memory for empty json array
-    // char *resp = (char *)malloc(resp_length * sizeof(char));
-    // resp[0] = '[';
-    // resp[1] = '\0';
     // loops through each entry in the direvtory
+
     while ((path = readdir(dirk)) != NULL)
     {
+
         // search for last occurance of character
-        char *exit = strrchr(path->d_name, '.');
+        char *exit = strstr(path->d_name, ".mp4");
         // checks for proper extention
         if (exit != NULL && strcmp(exit, ".mp4") == 0)
         {
-            // gets information on the file
-            if (stat(path->d_name, &file) == -1)
-            {
+            // retreive information about file
+            struct stat file;
 
+            char fname[PATH_MAX];
+            snprintf(fname, sizeof(fname), "%s/%s", server_root, path->d_name);
+
+            // gets information on the file
+            if (stat(fname, &file) == -1)
+            {
                 continue;
             }
             json_t *video = json_object();
-            json_object_set_new(video, "size", json_integer((long long)file.st_size));
+            json_object_set_new(video, "size", json_integer(file.st_size));
             json_object_set_new(video, "name", json_string(path->d_name));
             json_array_append_new(array, video);
-
-            // size_t remaining = resp_length - strlen(resp) - 1;
-            // // remaining space in string
-            // int video_file = snprintf(resp + strlen(resp), remaining,
-            //                           "{\"size\": %lld, \"name\": \"%s\"},",
-            //                           (long long)file
-            // .st_size, path->d_name);
-
-            //  if the string does not fit in space then reallocate memory
-            // if (video_file >= remaining)
-            // {
-            //     resp_length *= 2;
-            //     resp = realloc(resp, resp_length * sizeof(char));
-
-            //     snprintf(resp + strlen(resp), resp_length - strlen(resp),
-            //              "{\"size\": %lld, \"name\": \"%s\"},",
-            //              (long long)file
-            // .st_size, path->d_name);
-            // }
         }
     }
     // close the direvtory stream
-    closedir(dirk);
     char *resp = json_dumps(array, JSON_INDENT(2));
-    // if (resp[strlen(resp) - 1] == ',')
-    // {
 
-    //     resp[strlen(resp) - 1] = '\0';
-    // }
-    // snprintf(resp + strlen(resp), resp_length - strlen(resp), "]");
-    // printf("%s\n", resp);
     printf("HERE IS THE RESP: %s\n", resp);
+    http_add_header(&ta->resp_headers, "Content-Type", "application/json");
+    buffer_appends(&ta->resp_body, resp);
+    ta->resp_status = HTTP_OK;
     json_decref(array);
-    return resp;
+
+    closedir(dirk);
+
+    return send_response(ta);
 }
+
 // Serving files first - when request is made to server you should be able to return the file information through a file return protocol
 // Authentication in file serving (#1)
 // file streaming - streaming a very large file; return content of file but transfer part of a file at the same time; sending file piece by piece through a differnt request

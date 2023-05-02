@@ -1,0 +1,1 @@
+import{r as s}from"./auth.cf851987.js";async function n(e){const t=await s(e),{fetch:o}=e;return{videos:(await o("/api/video")).json(),user:t}}const r=!1,u=Object.freeze(Object.defineProperty({__proto__:null,load:n,ssr:r},Symbol.toStringTag,{value:"Module"}));export{u as _,n as l,r as s};

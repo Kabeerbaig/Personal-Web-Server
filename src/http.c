@@ -569,11 +569,11 @@ handle_api(struct http_transaction *ta)
     }
     else if (STARTS_WITH(req_path, "/api/logout"))
     {
-        if (ta->req_method != HTTP_GET || ta->req_method != HTTP_POST)
+        if (ta->req_method == HTTP_POST)
         {
-            return send_error(ta, HTTP_METHOD_NOT_ALLOWED, "Method not allowed");
+            return handle_api_logout(ta);
         }
-        return handle_api_logout(ta);
+        return send_error(ta, HTTP_METHOD_NOT_ALLOWED, "Method not allowed");
     }
     else if (STARTS_WITH(req_path, "/api/video"))
     {
@@ -627,7 +627,6 @@ bool http_handle_transaction(struct http_client *self)
 
     bool rc = false;
     char *req_path = bufio_offset2ptr(ta.client->bufio, ta.req_path);
-    printf("THE PATH: %s\n", req_path);
 
     if (STARTS_WITH(req_path, "/api"))
     {
@@ -766,14 +765,11 @@ static bool handle_api_get(struct http_transaction *ta)
 static bool handle_api_logout(struct http_transaction *ta)
 {
     // Checks if the method is a post request
-    if (ta->req_method != HTTP_POST)
-    {
-        return send_error(ta, HTTP_NOT_FOUND, "API not implemented");
-    }
+
     ta->authenticated = false;
-    ta->token = NULL;
+    ta->token = "";
     // set the JWT cookie header
-    http_add_header(&ta->resp_headers, "Set-Cookie", "auth_token=%s; Path=/; Max-Age=%ld; HttpOnly", "", 0);
+    http_add_header(&ta->resp_headers, "Set-Cookie", "auth_token=; Path=/; Max-Age=%ld; SameSite=Lax; HttpOnly;", 0);
 
     http_add_header(&ta->resp_headers, "Content-Type", "application/json");
     buffer_appends(&ta->resp_body, "{Logging out}");
@@ -833,7 +829,6 @@ static bool streaming_MP4(struct http_transaction *ta)
     // close the direvtory stream
     char *resp = json_dumps(array, JSON_INDENT(2));
 
-    printf("HERE IS THE RESP: %s\n", resp);
     http_add_header(&ta->resp_headers, "Content-Type", "application/json");
     buffer_appends(&ta->resp_body, resp);
     ta->resp_status = HTTP_OK;

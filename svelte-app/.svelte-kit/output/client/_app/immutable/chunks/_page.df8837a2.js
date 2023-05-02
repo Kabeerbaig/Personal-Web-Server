@@ -1,0 +1,1 @@
+async function e({fetch:o}){return{ntl:{logout:o("/api/logout",{method:"POST"})}}}const t=Object.freeze(Object.defineProperty({__proto__:null,load:e},Symbol.toStringTag,{value:"Module"}));export{t as _,e as l};

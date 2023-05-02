@@ -565,6 +565,16 @@ handle_api(struct http_transaction *ta)
     else if (STARTS_WITH(req_path, "/api/video"))
     {
         return streaming_MP4(ta);
+        // char *value = streaming_MP4(ta);
+        // if (value != NULL)
+        // {
+        //     send_response(ta);
+        //     return true;
+        // }
+        // else
+        // {
+        //     return false;
+        // }
     }
     return send_error(ta, HTTP_NOT_FOUND, "API not implemented");
 }
@@ -655,7 +665,7 @@ static bool handle_api_post(struct http_transaction *ta)
 
     if (username == NULL || password == NULL)
     {
-        return send_error(ta, HTTP_PERMISSION_DENIED, "Acess permission denied");
+        return send_error(ta, HTTP_PERMISSION_DENIED, "Access permission denied");
     }
     // If the username and password matches
     if (strcmp(username, USERNAME) == 0 && strcmp(password, PASSWORD) == 0)
@@ -758,34 +768,35 @@ static bool handle_api_logout(struct http_transaction *ta)
     ta->resp_status = HTTP_OK;
     return send_response(ta);
 }
-
+// handles stream of videos
 static char *streaming_MP4(struct http_transaction *ta)
 {
     // printf("MADE HERE\n");
 
     // pointer to a dir struct
-    DIR *dir;
+    DIR *dirk;
     // represents a directory entry
     struct dirent *path;
     // retreive information about file
-    struct stat file_stat;
+    struct stat file;
     // name of directory to search
     char *directory = ".";
     // opens the directory and returns a pointer to DIR struct
-    dir = opendir(directory);
+    dirk = opendir(directory);
     // error check
-    if (dir == NULL)
+    if (dirk == NULL)
     {
         return NULL;
     }
     // stores response string
-    size_t resp_length = 512;
+
+    json_t *array = json_array();
     // allocates memory for empty json array
-    char *resp = (char *)malloc(resp_length * sizeof(char));
-    resp[0] = '[';
-    resp[1] = '\0';
+    // char *resp = (char *)malloc(resp_length * sizeof(char));
+    // resp[0] = '[';
+    // resp[1] = '\0';
     // loops through each entry in the direvtory
-    while ((path = readdir(dir)) != NULL)
+    while ((path = readdir(dirk)) != NULL)
     {
         // search for last occurance of character
         char *exit = strrchr(path->d_name, '.');
@@ -793,41 +804,48 @@ static char *streaming_MP4(struct http_transaction *ta)
         if (exit != NULL && strcmp(exit, ".mp4") == 0)
         {
             // gets information on the file
-            if (stat(path->d_name, &file_stat) == -1)
+            if (stat(path->d_name, &file) == -1)
             {
 
                 continue;
             }
+            json_t *video = json_object();
+            json_object_set_new(video, "size", json_integer((long long)file.st_size));
+            json_object_set_new(video, "name", json_string(path->d_name));
+            json_array_append_new(array, video);
 
-            size_t remaining = resp_length - strlen(resp) - 1;
-            // remaining space in string
-            int video_file = snprintf(resp + strlen(resp), remaining,
-                                      "{\"size\": %lld, \"name\": \"%s\"},",
-                                      (long long)file_stat.st_size, path->d_name);
+            // size_t remaining = resp_length - strlen(resp) - 1;
+            // // remaining space in string
+            // int video_file = snprintf(resp + strlen(resp), remaining,
+            //                           "{\"size\": %lld, \"name\": \"%s\"},",
+            //                           (long long)file
+            // .st_size, path->d_name);
 
             //  if the string does not fit in space then reallocate memory
-            if (video_file >= remaining)
-            {
-                resp_length *= 2;
-                resp = realloc(resp, resp_length * sizeof(char));
+            // if (video_file >= remaining)
+            // {
+            //     resp_length *= 2;
+            //     resp = realloc(resp, resp_length * sizeof(char));
 
-                snprintf(resp + strlen(resp), resp_length - strlen(resp),
-                         "{\"size\": %lld, \"name\": \"%s\"},",
-                         (long long)file_stat.st_size, path->d_name);
-            }
+            //     snprintf(resp + strlen(resp), resp_length - strlen(resp),
+            //              "{\"size\": %lld, \"name\": \"%s\"},",
+            //              (long long)file
+            // .st_size, path->d_name);
+            // }
         }
     }
     // close the direvtory stream
-    closedir(dir);
+    closedir(dirk);
+    char *resp = json_dumps(array, JSON_INDENT(2));
+    // if (resp[strlen(resp) - 1] == ',')
+    // {
 
-    if (resp[strlen(resp) - 1] == ',')
-    {
-
-        resp[strlen(resp) - 1] = '\0';
-    }
-    snprintf(resp + strlen(resp), resp_length - strlen(resp), "]");
-    printf("%s\n", resp);
+    //     resp[strlen(resp) - 1] = '\0';
+    // }
+    // snprintf(resp + strlen(resp), resp_length - strlen(resp), "]");
+    // printf("%s\n", resp);
     printf("HERE IS THE RESP: %s\n", resp);
+    json_decref(array);
     return resp;
 }
 // Serving files first - when request is made to server you should be able to return the file information through a file return protocol

@@ -152,6 +152,12 @@ http_process_headers(struct http_transaction *ta)
         {
 
             char *encoded_cookie = field_value;
+            if (encoded_cookie == NULL)
+            {
+                ta->authenticated = false;
+                ta->token = "";
+                continue;
+            }
             char *token = strtok(encoded_cookie, ";");
 
             ta->authenticated = false;
@@ -162,9 +168,15 @@ http_process_headers(struct http_transaction *ta)
                 int offset = strspn(token, " "); // Get the number of leading white spaces
                 token += offset;                 // Move the pointer to the first non-white space character
 
-                int distance = strstr(token, "=") - token;
+                char *equals = strstr(token, "=");
+                if (equals == NULL)
+                {
+                    ta->authenticated = false;
+                    ta->token = "";
+                    continue;
+                }
 
-                // printf("HERE IS token:%s\n", token);
+                int distance = equals - token;
 
                 if (strncmp(token, "auth_token", strlen("auth_token")))
                 {

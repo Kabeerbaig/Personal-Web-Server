@@ -6,13 +6,14 @@ PORT=11435
 # change this variable, e.g.
 # URL=http://redbud.rlogin:12345
 URL=http://localhost:${PORT}
+# URL=https://spring2023-cs3214-jtomas.discovery.cs.vt.edu/
 
 # the file in which curl stores cookies across runs
 COOKIEJAR=cookies.txt
 
 
 # clear cookies
-/bin/rm ${COOKIEJAR}
+# /bin/rm ${COOKIEJAR}
 
 # test authentication
 # this should result in a cookie being issued that embeds the JWT token

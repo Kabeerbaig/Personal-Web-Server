@@ -187,6 +187,12 @@ http_process_headers(struct http_transaction *ta)
 
             time_t now = time(NULL);
 
+            if (strcasecmp(sub, USERNAME))
+            {
+                ta->authenticated = false;
+                continue;
+            }
+
             if (now < exp)
             {
                 ta->token = grants;
@@ -429,10 +435,8 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
     }
 
     snprintf(fname, sizeof fname, "%s%s", basedir, req_path);
-
     if (html5_fallback)
     {
-        char *alternative_path = realpath(fname, NULL);
 
         // check to see if the requested path has "/"
         // also check if the requested file is not found then we update fname to /index.html
@@ -441,33 +445,19 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
             snprintf(fname, sizeof fname, "%s/index.html", basedir);
         }
 
-        // If file cannot be found, return 200.html
-        else if (alternative_path == NULL)
+        else
         {
-            // alternative_path = realpath("/200.html", NULL);
-            // if (alternative_path == NULL)
-            // {
-            //     return send_not_found(ta);
-            // }
-            snprintf(fname, sizeof fname, "%s/200.html", basedir);
-        }
-        // Checks if file path starts with resolved base directory
-        // Return 404 Error if it doesnt start with it
-        else if (alternative_path != NULL)
-        {
-            // checks if alternative path contains a "."
-            if (strstr(alternative_path, ".") != NULL)
+            snprintf(fname, sizeof fname, "%s%s.html", basedir, req_path);
+
+            if (access(fname, R_OK))
             {
-                // use alternative path as is and do not append anything
-                snprintf(fname, sizeof fname, "%s", alternative_path);
+                snprintf(fname, sizeof fname, "%s%s", basedir, req_path);
+
+                if (access(fname, R_OK))
+                {
+                    snprintf(fname, sizeof fname, "%s/200.html", basedir);
+                }
             }
-            else
-            {
-                // append .html to the end of path
-                snprintf(fname, sizeof fname, "%s.html", alternative_path);
-            }
-            // free memory
-            free(alternative_path);
         }
     }
     // checks for access and send error message if no access
@@ -574,11 +564,11 @@ handle_api(struct http_transaction *ta)
     // Checks if the request path is api/logout and calls helper function
     else if (STARTS_WITH(req_path, "/api/logout"))
     {
-        if (ta->req_method != HTTP_GET || ta->req_method != HTTP_POST)
+        if (ta->req_method == HTTP_POST)
         {
-            return send_error(ta, HTTP_METHOD_NOT_ALLOWED, "Method not allowed");
+            return handle_api_logout(ta);
         }
-        return handle_api_logout(ta);
+        return send_error(ta, HTTP_METHOD_NOT_ALLOWED, "Method not allowed");
     }
     // checks if reqest path is api/video and calls helper function to handle it
     else if (STARTS_WITH(req_path, "/api/video"))
@@ -633,8 +623,7 @@ bool http_handle_transaction(struct http_client *self)
 
     bool rc = false;
     char *req_path = bufio_offset2ptr(ta.client->bufio, ta.req_path);
-    printf("THE PATH: %s\n", req_path);
-    // handles requests with /api
+
     if (STARTS_WITH(req_path, "/api"))
     {
         rc = handle_api(&ta);
@@ -779,14 +768,11 @@ static bool handle_api_get(struct http_transaction *ta)
 static bool handle_api_logout(struct http_transaction *ta)
 {
     // Checks if the method is a post request
-    if (ta->req_method != HTTP_POST)
-    {
-        return send_error(ta, HTTP_NOT_FOUND, "API not implemented");
-    }
+
     ta->authenticated = false;
-    ta->token = NULL;
+    ta->token = "";
     // set the JWT cookie header
-    http_add_header(&ta->resp_headers, "Set-Cookie", "auth_token=%s; Path=/; Max-Age=%ld; HttpOnly", "", 0);
+    http_add_header(&ta->resp_headers, "Set-Cookie", "auth_token=; Path=/; Max-Age=%ld; SameSite=Lax; HttpOnly;", 0);
 
     http_add_header(&ta->resp_headers, "Content-Type", "application/json");
     buffer_appends(&ta->resp_body, "{Logging out}");

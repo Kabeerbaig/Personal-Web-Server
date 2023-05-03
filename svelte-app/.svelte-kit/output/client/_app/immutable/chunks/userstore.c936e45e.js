@@ -1,0 +1,1 @@
+import{w as s}from"./index.f2b4f84c.js";import{a as u}from"./auth.cf851987.js";function i(){const{subscribe:r,set:t}=s(void 0,function(n){return u(fetch).then(o=>n(o)),()=>{}});return{subscribe:r,logout:()=>t(null),login:e=>{t(e)}}}const f=i();export{f as u};

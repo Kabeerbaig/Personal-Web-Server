@@ -187,6 +187,12 @@ http_process_headers(struct http_transaction *ta)
 
             time_t now = time(NULL);
 
+            if (strcasecmp(sub, USERNAME))
+            {
+                ta->authenticated = false;
+                continue;
+            }
+
             if (now < exp)
             {
                 ta->token = grants;
@@ -442,11 +448,11 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
         {
             snprintf(fname, sizeof fname, "%s%s.html", basedir, req_path);
 
-            if (access(fname, R_OK) != 0)
+            if (access(fname, R_OK))
             {
                 snprintf(fname, sizeof fname, "%s%s", basedir, req_path);
 
-                if (access(fname, R_OK) != 0)
+                if (access(fname, R_OK))
                 {
                     snprintf(fname, sizeof fname, "%s/200.html", basedir);
                 }
@@ -824,22 +830,3 @@ static bool streaming_MP4(struct http_transaction *ta)
 
     return send_response(ta);
 }
-
-// Serving files first - when request is made to server you should be able to return the file information through a file return protocol
-// Authentication in file serving (#1)
-// file streaming - streaming a very large file; return content of file but transfer part of a file at the same time; sending file piece by piece through a differnt request
-// Server will be multithreaded;
-// fully understand http.c code
-// ipv6 support; lecture notes on independent socket programming
-// curl localhost:4500/somepath
-// right arrow get
-
-// server loop accepts connections
-// http handle transactions is called everytime a connection is called
-// add authentification there; not implemented
-// handlestaticasset
-// handle api; figure out login stuff
-
-// jwt
-
-// curl -v used to debug network connections; you can manually see what is coming in and out in the headers

@@ -197,6 +197,7 @@ http_process_headers(struct http_transaction *ta)
                 ta->authenticated = false;
             }
         }
+        // checks if field name is Range
         if (!strcasecmp(field_name, "Range"))
         {
             // check for bytes in header value
@@ -454,20 +455,22 @@ handle_static_asset(struct http_transaction *ta, char *basedir)
         // Return 404 Error if it doesnt start with it
         else if (alternative_path != NULL)
         {
-
+            // checks if alternative path contains a "."
             if (strstr(alternative_path, ".") != NULL)
             {
+                // use alternative path as is and do not append anything
                 snprintf(fname, sizeof fname, "%s", alternative_path);
             }
             else
             {
+                // append .html to the end of path
                 snprintf(fname, sizeof fname, "%s.html", alternative_path);
             }
-
+            // free memory
             free(alternative_path);
         }
     }
-
+    // checks for access and send error message if no access
     if (access(fname, R_OK))
     {
         if (errno == EACCES)
@@ -540,13 +543,14 @@ out:
     close(filefd);
     return success;
 }
-
+// Handles API requests
 static bool
 handle_api(struct http_transaction *ta)
 {
-    // handle login and logout
+    // Gets pointer to a request path
     char *req_path = bufio_offset2ptr(ta->client->bufio, ta->req_path);
-
+    // Checks to see if request path starts api/login
+    // Then determines if the request is a GET or POST and calls helper function to handle it
     if (STARTS_WITH(req_path, "/api/login"))
     {
         if (strcasecmp(req_path, "/api/login") != 0)
@@ -567,6 +571,7 @@ handle_api(struct http_transaction *ta)
             return send_error(ta, HTTP_METHOD_NOT_ALLOWED, "Method not allowed");
         }
     }
+    // Checks if the request path is api/logout and calls helper function
     else if (STARTS_WITH(req_path, "/api/logout"))
     {
         if (ta->req_method != HTTP_GET || ta->req_method != HTTP_POST)
@@ -575,6 +580,7 @@ handle_api(struct http_transaction *ta)
         }
         return handle_api_logout(ta);
     }
+    // checks if reqest path is api/video and calls helper function to handle it
     else if (STARTS_WITH(req_path, "/api/video"))
     {
         return streaming_MP4(ta);
@@ -628,17 +634,19 @@ bool http_handle_transaction(struct http_client *self)
     bool rc = false;
     char *req_path = bufio_offset2ptr(ta.client->bufio, ta.req_path);
     printf("THE PATH: %s\n", req_path);
-
+    // handles requests with /api
     if (STARTS_WITH(req_path, "/api"))
     {
         rc = handle_api(&ta);
     }
+    // Handles request with /private and checks if user is authenticated
     else if (STARTS_WITH(req_path, "/private"))
     {
         if (ta.authenticated)
         {
             rc = handle_static_asset(&ta, server_root);
         }
+        // sends a permission deny if user is not authenticated
         else
         {
             send_error(&ta, HTTP_PERMISSION_DENIED, "Permission Denied.");
@@ -656,16 +664,18 @@ bool http_handle_transaction(struct http_client *self)
 
     return rc;
 }
-
+// Handles the post request
+// Token code was taken from file jwt_demo_hs256
 static bool handle_api_post(struct http_transaction *ta)
 {
+    // Gets a pointer to the request body
     char *buff = bufio_offset2ptr(ta->client->bufio, 0);
     char *body = buff + ta->req_body;
 
     // Parse the JSON body
     json_error_t err;
     json_t *req = json_loadb(body, ta->req_content_len, 0, &err);
-
+    // Checks if the json object could not be loaded
     if (req == NULL)
     {
         return send_error(ta, HTTP_BAD_REQUEST, "BAD JSON REQUEST");
@@ -676,7 +686,7 @@ static bool handle_api_post(struct http_transaction *ta)
     {
         return send_error(ta, HTTP_BAD_REQUEST, "Missing username and password!");
     }
-
+    // checks if credentials are null
     if (username == NULL || password == NULL)
     {
         return send_error(ta, HTTP_PERMISSION_DENIED, "Acess permission denied");
@@ -747,6 +757,8 @@ static bool handle_api_post(struct http_transaction *ta)
 // Handle the get request
 static bool handle_api_get(struct http_transaction *ta)
 {
+    // Checks to see if user is authenticated
+    // If user is authenticated then append token to resp_body and set header
     if (ta->authenticated)
     {
         buffer_appends(&ta->resp_body, ta->token);
@@ -755,7 +767,8 @@ static bool handle_api_get(struct http_transaction *ta)
 
         return send_response(ta);
     }
-
+    // If the user is not authenticated append empty JSON object to response body
+    // set headers and status
     buffer_appends(&ta->resp_body, "{}");
     http_add_header(&ta->resp_headers, "Content-Type", "application/json");
     ta->resp_status = HTTP_OK;
@@ -786,8 +799,6 @@ static bool handle_api_logout(struct http_transaction *ta)
 // handles stream of videos
 static bool streaming_MP4(struct http_transaction *ta)
 {
-    // printf("MADE HERE\n");
-
     // pointer to a dir struct
     DIR *dirk;
     // represents a directory entry
@@ -808,7 +819,7 @@ static bool streaming_MP4(struct http_transaction *ta)
     while ((path = readdir(dirk)) != NULL)
     {
 
-        // search for last occurance of character
+        // search for last occurance of .mp4
         char *exit = strstr(path->d_name, ".mp4");
         // checks for proper extention
         if (exit != NULL && strcmp(exit, ".mp4") == 0)
@@ -824,41 +835,22 @@ static bool streaming_MP4(struct http_transaction *ta)
             {
                 continue;
             }
+            // initalize JSON object with the proper .mp4 information
             json_t *video = json_object();
             json_object_set_new(video, "size", json_integer(file.st_size));
             json_object_set_new(video, "name", json_string(path->d_name));
             json_array_append_new(array, video);
         }
     }
-    // close the direvtory stream
+    // Convert JSOn array to string
     char *resp = json_dumps(array, JSON_INDENT(2));
-
-    printf("HERE IS THE RESP: %s\n", resp);
+    // add response header
     http_add_header(&ta->resp_headers, "Content-Type", "application/json");
     buffer_appends(&ta->resp_body, resp);
     ta->resp_status = HTTP_OK;
     json_decref(array);
-
+    // close the directory stream
     closedir(dirk);
 
     return send_response(ta);
 }
-
-// Serving files first - when request is made to server you should be able to return the file information through a file return protocol
-// Authentication in file serving (#1)
-// file streaming - streaming a very large file; return content of file but transfer part of a file at the same time; sending file piece by piece through a differnt request
-// Server will be multithreaded;
-// fully understand http.c code
-// ipv6 support; lecture notes on independent socket programming
-// curl localhost:4500/somepath
-// right arrow get
-
-// server loop accepts connections
-// http handle transactions is called everytime a connection is called
-// add authentification there; not implemented
-// handlestaticasset
-// handle api; figure out login stuff
-
-// jwt
-
-// curl -v used to debug network connections; you can manually see what is coming in and out in the headers

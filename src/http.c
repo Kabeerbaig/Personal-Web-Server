@@ -150,57 +150,82 @@ http_process_headers(struct http_transaction *ta)
 
         if (!strcasecmp(field_name, "Cookie"))
         {
+
             char *encoded_cookie = field_value;
+            char *token = strtok(encoded_cookie, ";");
 
-            char *token = strstr(encoded_cookie, "auth_token="); // tokenize the string by semicolon delimiter
-
-            if (token == NULL)
+            ta->authenticated = false;
+            ta->token = "";
+            while (token != NULL)
             {
-                ta->authenticated = false;
-                continue;
-            }
-            token += strlen("auth_token=");
-            // printf("Cookie: %s\n", token);
 
-            jwt_t *ymtoken;
-            jwt_decode(&ymtoken, token, (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE, strlen(NEVER_EMBED_A_SECRET_IN_CODE));
+                int offset = strspn(token, " "); // Get the number of leading white spaces
+                token += offset;                 // Move the pointer to the first non-white space character
 
-            char *grants = jwt_get_grants_json(ymtoken, NULL);
-            if (grants == NULL)
-            {
-                ta->authenticated = false;
-                continue;
-            }
-            json_error_t error;
+                int distance = strstr(token, "=") - token;
 
-            json_t *jgrants = json_loadb(grants, strlen(grants), 0, &error);
-            if (jgrants == NULL)
-            {
-                ta->authenticated = false;
-                continue;
-            }
+                // printf("HERE IS token:%s\n", token);
 
-            json_int_t exp, iat;
-            const char *sub;
-            json_unpack(jgrants, "{s:I, s:I, s:s}",
-                        "exp", &exp, "iat", &iat, "sub", &sub);
+                if (strncmp(token, "auth_token", strlen("auth_token")))
+                {
+                    ta->authenticated = false;
+                    ta->token = "";
+                    token = strtok(NULL, ";");
+                    // printf("BAD COOKIE LENGTH\n");
+                    continue;
+                }
+                token += distance + 1;
+                // printf("Cookie: %s\n", token);
 
-            time_t now = time(NULL);
+                jwt_t *ymtoken;
+                jwt_decode(&ymtoken, token, (unsigned char *)NEVER_EMBED_A_SECRET_IN_CODE, strlen(NEVER_EMBED_A_SECRET_IN_CODE));
 
-            if (strcasecmp(sub, USERNAME))
-            {
-                ta->authenticated = false;
-                continue;
-            }
+                char *grants = jwt_get_grants_json(ymtoken, NULL);
+                if (grants == NULL)
+                {
+                    ta->authenticated = false;
+                    ta->token = "";
+                    token = strtok(NULL, ";");
+                    // printf("BAD COOKIE GRANT\n");
+                    continue;
+                }
+                json_error_t error;
 
-            if (now < exp)
-            {
-                ta->token = grants;
-                ta->authenticated = true;
-            }
-            else
-            {
-                ta->authenticated = false;
+                json_t *jgrants = json_loadb(grants, strlen(grants), 0, &error);
+                if (jgrants == NULL)
+                {
+                    ta->authenticated = false;
+                    ta->token = "";
+                    token = strtok(NULL, ";");
+                    // printf("BAD COOKIE LOADB\n");
+
+                    continue;
+                }
+
+                json_int_t exp, iat;
+                const char *sub;
+                json_unpack(jgrants, "{s:I, s:I, s:s}",
+                            "exp", &exp, "iat", &iat, "sub", &sub);
+
+                time_t now = time(NULL);
+
+                // printf("THE USERNAME:%s\n", sub);
+
+                if (!strcasecmp(sub, USERNAME) && now < exp)
+                {
+                    ta->token = grants;
+                    ta->authenticated = true;
+                    // printf("GOOD COOKIE:%s\n", token);
+
+                    break;
+                }
+                else
+                {
+                    ta->authenticated = false;
+                    ta->token = "";
+                    token = strtok(NULL, ";");
+                    // printf("BAD COOKIE USERNAME AND TIME\n");
+                }
             }
         }
         if (!strcasecmp(field_name, "Range"))
